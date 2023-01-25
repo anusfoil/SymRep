@@ -1,0 +1,49 @@
+
+
+experiment:
+  epoch: 50
+  batch_size: 16
+  lr: 1e-4
+  restore_training: False
+  device: "1"
+
+  n_segs: 4
+  dataset: ASAP
+  task: composer_id
+  input_format: perfmidi # perfmidi, musicxml, kern
+  symrep: matrix
+
+
+# TASK
+# composer_id
+
+
+# Representation
+matrix:
+  resolution: 800 # the width of matrix
+  pitch_bins: 128
+
+# DATASET 
+dataset:
+  ASAP:
+    dataset_dir: /homes/hz009/Research/Datasets/asap-dataset/
+    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.0.csv
+
+  ATEPP: 
+    dataset_dir: ../Datasets/ATEPP-1.1/
+    metadata_file: 
+
+  PD:
+    dataset_dir: /homes/hz009/Research/Datasets/piano_difficulty/
+    metadata_file: /homes/hz009/Research/Datasets/piano_difficulty/labels.csv
+
+# HYDRA
+defaults:  
+  - _self_  
+  # - override hydra/hydra_logging: disabled  
+  # - override hydra/job_logging: disabled  
+  
+hydra:  
+  output_subdir: null  
+  run:  
+    dir: .

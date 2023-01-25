@@ -1,0 +1,5 @@
+**/__pychache__/
+**/__init__.py
+**/wandb/
+**/symrep/
+**/*.log
