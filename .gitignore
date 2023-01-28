@@ -3,3 +3,5 @@
 **/wandb/
 **/symrep/
 **/*.log
+hook.py
+**/checkpoints/

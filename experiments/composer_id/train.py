@@ -1,5 +1,5 @@
-import sys
-sys.path.extend(["../../symrep", "../..", "../../model"])
+import os, sys
+sys.path.extend(["../../symrep", "../..", "../../model", "../../converters"])
 import hydra
 from omegaconf import DictConfig, OmegaConf
 import torch
@@ -9,9 +9,10 @@ from torch.utils.data import  DataLoader, random_split
 from torchmetrics import Accuracy, AUROC, F1Score
 from pytorch_lightning import Trainer, LightningModule, LightningDataModule
 from pytorch_lightning import loggers as pl_loggers
+from pytorch_lightning.callbacks import ModelCheckpoint
 from einops import rearrange, reduce, repeat
 
-from symrep import dataloaders, matrix
+from converters import dataloaders, matrix, sequence
 from model.frontend import cnn_baseline
 from model.backend import baseline
 
@@ -40,8 +41,9 @@ class LitModel(LightningModule):
         """convert a batch of data into with the designated representation format.
         """
         if self.cfg.experiment.symrep == "matrix":
-            _input, _label = matrix.batch_to_matrix(batch, self.cfg)  
-            
+            _input, _label = matrix.batch_to_matrix(batch, self.cfg, self.device)  
+        elif self.cfg.experiment.symrep == "sequence":
+            _input, _label = sequence.batch_to_sequence(batch, self.cfg, self.device)              
         return _input, _label
 
 
@@ -100,13 +102,17 @@ class LitDataset(LightningDataModule):
     def __init__(self, cfg):
         super(LitDataset, self).__init__()
         self.cfg = cfg
-        if cfg.experiment.dataset == "ASAP":
-            asap_dataset = dataloaders.ASAP(cfg)
-            label_encoder = asap_dataset.label_encoder
-            self.n_classes = label_encoder.vocab_size
 
-            train_len = int(len(asap_dataset)*0.8)
-            self.train_set, self.valid_set = random_split(asap_dataset, [train_len, len(asap_dataset) - train_len])
+        if cfg.experiment.dataset == "ASAP":
+            dataset = dataloaders.ASAP(cfg)
+        elif cfg.experiment.dataset == "ATEPP":
+            dataset = dataloaders.ATEPP(cfg)
+
+        label_encoder = dataset.label_encoder
+        self.n_classes = label_encoder.vocab_size
+
+        train_len = int(len(dataset)*0.8)
+        self.train_set, self.valid_set = random_split(dataset, [train_len, len(dataset) - train_len])
 
 
     def train_dataloader(self):
@@ -121,6 +127,8 @@ class LitDataset(LightningDataModule):
 @hydra.main(config_path="../../conf", config_name="config")
 def main(cfg: OmegaConf) -> None:
 
+    os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
+
     lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
         cnn_baseline.CNN(), 
@@ -133,10 +141,17 @@ def main(cfg: OmegaConf) -> None:
         max_epochs=cfg.experiment.epoch,
         logger=pl_loggers.WandbLogger(
                 project="symrep",
-                name=f"{cfg.experiment.task}-{cfg.experiment.dataset}"
-            )
+                name=f"{cfg.experiment.task}-{cfg.experiment.dataset}-{cfg.experiment.input_format}"
+            ),
+        callbacks=[ModelCheckpoint(
+                monitor="val_acc",
+                dirpath=cfg.experiment.checkpoint_dir,
+                filename='{epoch:02d}-{val_acc:.2f}'
+            )]
         )
-    trainer.fit(lit_model, datamodule=lit_dataset)
+    trainer.fit(lit_model, 
+        datamodule=lit_dataset,
+        ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.continue_training else None))
 
 
 if __name__ == "__main__":

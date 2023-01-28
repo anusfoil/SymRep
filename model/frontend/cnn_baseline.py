@@ -13,7 +13,7 @@ class CNN(nn.Module):
     def __init__(self):
         super().__init__()
         self.blocks = [get_convblock(i, o, k) for i, o, k in [
-            [1, 16, 3],
+            [2, 16, 3],
             [16, 32, 3],
             [32, 32, (3, 5)]
         ]]

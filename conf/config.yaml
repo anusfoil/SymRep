@@ -1,17 +1,21 @@
 
 
 experiment:
-  epoch: 50
+  exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}"
+  epoch: 300
   batch_size: 16
   lr: 1e-4
   restore_training: False
-  device: "1"
+  device: "4"
+  continue_training: False
+  checkpoint_dir: "checkpoints/${experiment.exp_name}"
+  checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   n_segs: 4
-  dataset: ASAP
-  task: composer_id
+  dataset: ATEPP
+  task: composer_id 
   input_format: perfmidi # perfmidi, musicxml, kern
-  symrep: matrix
+  symrep: sequence # matrix, sequence, graph
 
 
 # TASK
@@ -21,7 +25,15 @@ experiment:
 # Representation
 matrix:
   resolution: 800 # the width of matrix
-  pitch_bins: 128
+  bins: 131 # 128 pitchs + 3 pedals
+
+sequence:
+  pr_start: 21 
+  pr_end: 109
+  beat_res: 8  # 
+  nb_velocities: 32
+  seq_len: 2000
+
 
 # DATASET 
 dataset:
@@ -30,8 +42,8 @@ dataset:
     metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.0.csv
 
   ATEPP: 
-    dataset_dir: ../Datasets/ATEPP-1.1/
-    metadata_file: 
+    dataset_dir: /homes/hz009/Research/Datasets/ATEPP-1.1/
+    metadata_file: /homes/hz009/Research/Datasets/ATEPP-1.1/ATEPP-metadata-1.3.csv
 
   PD:
     dataset_dir: /homes/hz009/Research/Datasets/piano_difficulty/
