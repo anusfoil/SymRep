@@ -14,8 +14,9 @@ experiment:
   n_segs: 4
   dataset: ATEPP
   task: composer_id 
-  input_format: perfmidi # perfmidi, musicxml, kern
-  symrep: sequence # matrix, sequence, graph
+  input_format: musicxml # perfmidi, musicxml, kern
+  symrep: matrix # matrix, sequence, graph
+  emb_dim: 32 # frontend embedding from each segment
 
 
 # TASK
@@ -26,6 +27,7 @@ experiment:
 matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
+  n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
 
 sequence:
   pr_start: 21 

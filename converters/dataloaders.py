@@ -54,7 +54,7 @@ class ATEPP(Dataset):
 
         if self.input_format == "musicxml":
             # filter out the ones without score
-            self.metadata = self.metadata[self.metadata['score_path']]
+            self.metadata = self.metadata[~self.metadata['score_path'].isna()]
 
         if self.task == "composer_id":
             self.label_column = self.metadata['composer']
@@ -68,12 +68,12 @@ class ATEPP(Dataset):
         return len(self.metadata)
 
     def __getitem__(self, idx):
-        label = self.label_column[idx]
+        label = self.label_column.iloc[idx]
         label = self.label_encoder.encode(label)
 
         if self.input_format == "perfmidi":
-            return (os.path.join(self.dataset_dir, self.metadata['midi_path'][idx]), label)
+            return (os.path.join(self.dataset_dir, self.metadata['midi_path'].iloc[idx]), label)
         elif self.input_format == "musicxml":
-            return (self.dataset_dir + self.metadata['score_path'][idx], label)
+            return (self.dataset_dir + self.metadata['score_path'].iloc[idx], label)
 
 

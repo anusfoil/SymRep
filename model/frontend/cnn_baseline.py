@@ -20,11 +20,12 @@ class CNN(nn.Module):
         self.cnn_modules = nn.Sequential(
             *self.blocks,
             nn.AvgPool2d(1, 17),
-            Rearrange('b c h w -> b (c h w)'),
-            # nn.Linear(32, n_classes)
+            Rearrange('b c h w -> b (c h w)')
             )
         
     def forward(self, x):
+        # x: (b s) c h w
         x = self.cnn_modules(x)
+        # x: b (c h w) -- b 32
         return x
     

@@ -14,7 +14,7 @@ from einops import rearrange, reduce, repeat
 
 from converters import dataloaders, matrix, sequence
 from model.frontend import cnn_baseline
-from model.backend import baseline
+from model.backend import baseline_agg
 
 
 
@@ -132,7 +132,7 @@ def main(cfg: OmegaConf) -> None:
     lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
         cnn_baseline.CNN(), 
-        baseline.Aggregator(lit_dataset.n_classes),
+        baseline_agg.Aggregator(lit_dataset.n_classes),
         cfg)
 
     trainer = Trainer(
