@@ -44,8 +44,7 @@ def perfmidi_to_matrix(path, cfg):
     """Clip rolls into segments and concatenate"""
     onset_roll = rearrange(onset_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
     velocity_roll = rearrange(velocity_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
-    matrices = np.stack([onset_roll, velocity_roll], axis=1)
-
+    matrices = rearrange([onset_roll, velocity_roll], "c s f n -> s c f n") # stack them in channel, c=2
     return matrices # (s 2 h w)
 
 
@@ -79,7 +78,7 @@ def musicxml_to_matrix(path, cfg):
     """Clip rolls into segments and concatenate"""
     onset_roll = rearrange(onset_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
     voice_roll = rearrange(voice_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
-    matrices = np.stack([onset_roll, voice_roll], axis=1)
+    matrices = rearrange([onset_roll, voice_roll], "c s f n -> s c f n")
 
     return matrices # (s 2 h w)
 

@@ -13,7 +13,7 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from einops import rearrange, reduce, repeat
 
 from converters import dataloaders, matrix, sequence
-from model.frontend import cnn_baseline
+from model.frontend import cnn_baseline, rnn_baseline
 from model.backend import baseline_agg
 
 
@@ -49,8 +49,10 @@ class LitModel(LightningModule):
 
     def forward_pass(self, _input):
         """the same forward pass in both training_step and validation_step"""
-        
-        _input = rearrange(_input, "b s c h w -> (b s) c h w") 
+        if self.cfg.experiment.symrep == "matrix":
+            _input = rearrange(_input, "b s c h w -> (b s) c h w") 
+        elif self.cfg.experiment.symrep == "sequence":
+            _input = rearrange(_input, "b s l -> (b s) l") 
         _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=self.cfg.experiment.n_segs) 
         _logits = self.model_backend(_seg_emb) # b n
         _pred = F.softmax(_logits, dim=1).argmax(dim=1)   
@@ -129,19 +131,27 @@ def main(cfg: OmegaConf) -> None:
 
     os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
 
+    # set the frontend based on the symbolic representation.
+    if cfg.experiment.symrep == "matrix":
+        model = cnn_baseline.CNN(cfg)
+    elif cfg.experiment.symrep == "sequence":
+        model = rnn_baseline.RNN(cfg)
+    elif cfg.experiment.symrep == "graph":
+        model = gnn_baseline.GNN(cfg)
+
     lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
-        cnn_baseline.CNN(), 
+        model, 
         baseline_agg.Aggregator(lit_dataset.n_classes),
         cfg)
 
     trainer = Trainer(
         accelerator="gpu",
-        devices="1",
+        gpus=[cfg.experiment.device],
         max_epochs=cfg.experiment.epoch,
         logger=pl_loggers.WandbLogger(
                 project="symrep",
-                name=f"{cfg.experiment.task}-{cfg.experiment.dataset}-{cfg.experiment.input_format}"
+                name=cfg.experiment.exp_name
             ),
         callbacks=[ModelCheckpoint(
                 monitor="val_acc",

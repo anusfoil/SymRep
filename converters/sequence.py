@@ -40,6 +40,24 @@ def perfmidi_to_sequence(path, tokenizer, cfg):
     assert(seg_tokens.shape == (cfg.experiment.n_segs, cfg.sequence.seq_len))
     return seg_tokens # (s l)
 
+def musicxml_to_sequence(path, tokenizer, cfg):
+    """Process musicxml to sequences using miditok"""
+
+    midi = MidiFile(path)
+    tokens = tokenizer(midi)[0] # (l, )
+
+    """Clip rolls into segments and add padding"""
+    l = int(len(tokens) / cfg.experiment.n_segs)
+    seg_tokens = []
+    for i in range(cfg.experiment.n_segs):
+        seg_tokens.append(np.pad(tokens[ i*l: i*l+l ], 
+                            (0, cfg.sequence.seq_len - len(tokens[ i*l: i*l+l ])), 
+                            mode="constant",
+                            constant_values=1)) 
+    seg_tokens = np.array(seg_tokens)
+    assert(seg_tokens.shape == (cfg.experiment.n_segs, cfg.sequence.seq_len))
+    return seg_tokens # (s l)
+
 
 def batch_to_sequence(batch, cfg, device):
     """Map the batch to input token sequences 

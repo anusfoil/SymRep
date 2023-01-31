@@ -10,12 +10,12 @@ def get_convblock(in_channel, out_channel, kernel):
     )
 
 class CNN(nn.Module):
-    def __init__(self):
+    def __init__(self, cfg):
         super().__init__()
         self.blocks = [get_convblock(i, o, k) for i, o, k in [
             [2, 16, 3],
             [16, 32, 3],
-            [32, 32, (3, 5)]
+            [32, cfg.experiment.emb_dim, (3, 5)]
         ]]
         self.cnn_modules = nn.Sequential(
             *self.blocks,
