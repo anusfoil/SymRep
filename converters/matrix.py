@@ -83,6 +83,42 @@ def musicxml_to_matrix(path, cfg):
     return matrices # (s 2 h w)
 
 
+def kern_to_matrix(path, cfg):
+    """Process kern to roll matrices for training"""
+
+    import warnings
+    warnings.filterwarnings("ignore") # mute partitura warnings
+
+    try: # some parsing error....
+        score_data = pt.load_kern(path)
+        note_events = pd.DataFrame(score_data.note_array(), columns=score_data.note_array().dtype.names)
+    except:
+        return None
+
+    end_time_divs = note_events['onset_div'].max() + note_events['duration_div'].max()
+    frames_num = cfg.matrix.resolution
+    frames_per_second = (frames_num / end_time_divs)
+    onset_roll = np.zeros((frames_num, cfg.matrix.bins))
+    voice_roll = np.zeros((frames_num, cfg.matrix.bins))
+
+    for _, note_event in note_events.iterrows():
+        """note_event: e.g., Note(start=1.009115, end=1.066406, pitch=40, velocity=93)"""
+
+        bgn_frame = min(int(round((note_event['onset_div']) * frames_per_second)), frames_num-1)
+        fin_frame = min(bgn_frame + int(round((note_event['duration_div']) * frames_per_second)), frames_num-1)
+        voice_roll[bgn_frame : fin_frame + 1, note_event['pitch']] = note_event['voice']
+        onset_roll[bgn_frame, note_event.pitch] = 1
+
+
+    """Clip rolls into segments and concatenate"""
+    onset_roll = rearrange(onset_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
+    voice_roll = rearrange(voice_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
+    matrices = rearrange([onset_roll, voice_roll], "c s f n -> s c f n")
+
+    return matrices # (s 2 h w)
+
+
+
 def batch_to_matrix(batch, cfg, device):
     """Map the batch to input piano roll matrices
     TODO: try onsets+frames 3d matrix, and try the pedal matrix as well

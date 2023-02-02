@@ -4,7 +4,7 @@ experiment:
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
   batch_size: 8
-  lr: 1e-4
+  lr: 1e-5
   restore_training: False
   device: 4
   continue_training: False
@@ -12,15 +12,11 @@ experiment:
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   n_segs: 4
-  dataset: ATEPP
+  dataset: ASAP
   task: composer_id 
-  input_format: perfmidi # perfmidi, musicxml, kern
+  input_format: musicxml # perfmidi, musicxml, kern
   symrep: sequence # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
-
-
-# TASK
-# composer_id
 
 
 # Representation
@@ -30,11 +26,12 @@ matrix:
   n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
 
 sequence:
+  mid_encoding: MidiLike
   pr_start: 21 
   pr_end: 109
   beat_res: 8  # 
   nb_velocities: 32
-  seq_len: 20000 # should think about how to get variable length for segments
+  seq_len: 10000 # should think about how to get variable length for segments. ATEPP: 20000, ASAP: 18000
 
 
 # DATASET 
