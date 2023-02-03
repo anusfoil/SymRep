@@ -64,7 +64,10 @@ def musicxml_to_sequence(path, tokenizer, cfg):
     warnings.filterwarnings("ignore") # mute partitura warnings
 
     # midi = MidiFile(path)
-    score = pt.load_musicxml(path)
+    try:
+        score = pt.load_musicxml(path)
+    except:
+        return None
     tokens = tokenizer.track_to_tokens(score) # (l, )
     assert(type(tokens) == list)
 
@@ -92,17 +95,27 @@ def batch_to_sequence(batch, cfg, device):
         label: (b, )
     """
     files, labels = batch
+    b = len(batch[0])
     batch_sequence = []
 
     tokenizer = construct_tokenizer(cfg)
-    for path, _ in zip(files, labels):
+    for idx, (path, _) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
             seg_sequences = perfmidi_to_sequence(path, tokenizer, cfg)
         elif cfg.experiment.input_format == "musicxml":
-            seg_sequences = musicxml_to_sequence(path, tokenizer, cfg)
+            res = musicxml_to_sequence(path, tokenizer, cfg)
+            if type(res) == np.ndarray:
+                    seg_sequences = res
+            else: # in case that the xml has parsing error, we skip and copy existing data at the end.
+                labels = torch.cat((labels[0:idx], labels[idx+1:]))
+                continue
         elif cfg.experiment.input_format == "kern":
             seg_sequences = kern_to_sequence(path, tokenizer, cfg)
         batch_sequence.append(seg_sequences)
+
+    n_skipped = b - len(batch_sequence)
+    batch_sequence += [batch_sequence[-1]] * n_skipped
+    labels = torch.cat((labels, repeat(labels[-1:], "n -> (n b)", b=n_skipped)))
 
     batch_sequence = torch.tensor(np.array(batch_sequence), device=device, dtype=torch.float32) 
     return batch_sequence, labels

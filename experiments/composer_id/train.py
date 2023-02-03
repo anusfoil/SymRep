@@ -12,8 +12,10 @@ from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
 from einops import rearrange, reduce, repeat
 
-from converters import dataloaders, matrix, sequence
-from model.frontend import cnn_baseline, rnn_baseline
+import dgl
+from dgl.dataloading import GraphDataLoader
+from converters import dataloaders, matrix, sequence, graph
+from model.frontend import cnn_baseline, rnn_baseline, gnn_baseline
 from model.backend import baseline_agg
 
 
@@ -43,7 +45,9 @@ class LitModel(LightningModule):
         if self.cfg.experiment.symrep == "matrix":
             _input, _label = matrix.batch_to_matrix(batch, self.cfg, self.device)  
         elif self.cfg.experiment.symrep == "sequence":
-            _input, _label = sequence.batch_to_sequence(batch, self.cfg, self.device)              
+            _input, _label = sequence.batch_to_sequence(batch, self.cfg, self.device)  
+        elif self.cfg.experiment.symrep == "graph":
+            _input, _label = graph.batch_to_graph(batch, self.cfg, self.device)              
         return _input, _label
 
 
@@ -53,6 +57,9 @@ class LitModel(LightningModule):
             _input = rearrange(_input, "b s c h w -> (b s) c h w") 
         elif self.cfg.experiment.symrep == "sequence":
             _input = rearrange(_input, "b s l -> (b s) l") 
+        elif self.cfg.experiment.symrep == "graph":
+            _input = rearrange(_input, "b s -> (b s)") 
+            _input = dgl.batch(_input).to(self.device)
         _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=self.cfg.experiment.n_segs) 
         _logits = self.model_backend(_seg_emb) # b n
         _pred = F.softmax(_logits, dim=1).argmax(dim=1)   

@@ -4,7 +4,6 @@ import pretty_midi
 import partitura as pt
 from einops import rearrange, repeat
 import pandas as pd
-import muspy
 
 
 def perfmidi_to_matrix(path, cfg):
@@ -56,7 +55,7 @@ def musicxml_to_matrix(path, cfg):
 
     try: # some parsing error....
         score_data = pt.load_musicxml(path)
-        note_events = pd.DataFrame(score_data.note_array(), columns=score_data.note_array().dtype.names)
+        note_events = score_data.note_array()
     except:
         return None
 
@@ -66,7 +65,7 @@ def musicxml_to_matrix(path, cfg):
     onset_roll = np.zeros((frames_num, cfg.matrix.bins))
     voice_roll = np.zeros((frames_num, cfg.matrix.bins))
 
-    for _, note_event in note_events.iterrows():
+    for _, note_event in note_events:
         """note_event: e.g., Note(start=1.009115, end=1.066406, pitch=40, velocity=93)"""
 
         bgn_frame = min(int(round((note_event['onset_div']) * frames_per_second)), frames_num-1)

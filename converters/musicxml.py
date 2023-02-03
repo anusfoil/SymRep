@@ -1,5 +1,5 @@
 """ MusicXML encoding method 
-a costum encoding scheme following MidiTok's framework, please put under
+a costum encoding scheme following MidiTok's framework, please put under the miditok package
 
 """
 
