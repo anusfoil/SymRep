@@ -114,4 +114,6 @@ def batch_to_sequence(batch, cfg, device):
         batch_sequence.append(seg_sequences)
         batch_labels.append(l)
 
-    return utils.pad_batch(b, device, batch_sequence, batch_labels)
+    batch_sequence, batch_labels = utils.pad_batch(b, device, batch_sequence, batch_labels)
+    batch_sequence = torch.tensor(np.array(batch_sequence), device=device, dtype=torch.float32) 
+    return batch_sequence, batch_labels

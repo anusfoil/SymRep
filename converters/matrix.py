@@ -147,6 +147,7 @@ def batch_to_matrix(batch, cfg, device):
         batch_labels.append(l)
 
     batch_matrix, batch_labels = utils.pad_batch(b, device, batch_matrix, batch_labels)
+    batch_matrix = torch.tensor(np.array(batch_matrix), device=device, dtype=torch.float32) 
     assert(batch_matrix.shape == (b, cfg.experiment.n_segs, cfg.matrix.n_channels,
                                 int(cfg.matrix.resolution / cfg.experiment.n_segs), 
                                 cfg.matrix.bins,))

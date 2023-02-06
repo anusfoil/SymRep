@@ -19,7 +19,6 @@ class RNN(nn.Module):
         
 
     def forward(self, x):
-        b, l = x.shape
 
         x = self.emb(x.long())
         _, hidden = self.rnn(x)

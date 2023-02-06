@@ -80,6 +80,7 @@ def perfmidi_to_graph(path, cfg):
             consec_nbs = seg_note_events[np.absolute(seg_note_events['start'] - note['end']) < cfg.graph.mid_window]
             sustain_nbs = seg_note_events[(seg_note_events['start'] <= note['start']) & (seg_note_events['end'] > note['end'])]
 
+            # TODO: should I assign them as different edge types?? different message passing??
             perfmidi_g.add_edges(np.array([j] * len(onset_nbs)), np.array(onset_nbs.index))
             perfmidi_g.add_edges(np.array([j] * len(consec_nbs)), np.array(consec_nbs.index))
             perfmidi_g.add_edges(np.array([j] * len(sustain_nbs)), np.array(sustain_nbs.index))
@@ -138,14 +139,14 @@ def batch_to_graph(batch, cfg, device):
     """
     files, labels = batch
     b = len(batch[0])
-    batch_graphs = []
+    batch_graphs, batch_labels = [], []
 
     if not os.path.exists(cfg.graph.save_dir):
         os.makedirs(cfg.graph.save_dir)
         with open(f"{cfg.graph.save_dir}/metadata.csv", "w") as f:
             f.write("path,save_dir\n")
 
-    for idx, (path, _) in enumerate(zip(files, labels)):
+    for idx, (path, l) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
             seg_graphs = perfmidi_to_graph(path, cfg)
         elif cfg.experiment.input_format == "musicxml":
@@ -157,6 +158,7 @@ def batch_to_graph(batch, cfg, device):
         elif cfg.experiment.input_format == "kern":
             seg_graphs = kern_to_graph(path, cfg)
         batch_graphs.append(seg_graphs)
+        batch_labels.append(l)
     
     batch_graphs, batch_labels = utils.pad_batch(b, device, batch_graphs, batch_labels)
 
