@@ -15,6 +15,40 @@ import pandas as pd
 import utils as utils
 
 
+def get_pc_one_hot(note_array):
+    """Get one-hot encoding of pitch class."""
+    one_hot = np.zeros((len(note_array), 12))
+    idx = (np.arange(len(note_array)),np.remainder(note_array["pitch"], 12))
+    one_hot[idx] = 1
+    return one_hot
+
+
+def get_octave_one_hot(note_array):
+    """Get one-hot encoding of octave."""
+    one_hot = np.zeros((len(note_array), 10))
+    idx = (np.arange(len(note_array)), np.floor_divide(note_array["pitch"], 12))
+    one_hot[idx] = 1
+    return one_hot
+
+
+def feature_extraction_score(note_array):
+    '''Extract features from note_array.
+    Parameters
+    ----------
+    note_array : structured array
+        The partitura note_array object. Every entry has 5 attributes, i.e. onset_time, note duration, note velocity, voice, id.
+    Returns
+    -------
+    features : np.array
+        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. onset_time, note duration, note velocity.
+    '''
+    pc_oh = get_pc_one_hot(note_array["pitch"])
+    octave_oh = get_octave_one_hot(note_array["pitch"])
+    duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
+    out = np.hstack((duration_feature, pc_oh, octave_oh))
+    return out
+
+
 def edges_from_note_array(note_array):
     '''Turn note_array to list of edges.
     Parameters
@@ -199,6 +233,8 @@ def musicxml_to_graph(path):
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
     # Built HeteroGraph
     hg = dgl.heterograph(graph_dict)
+    # Add node features
+    hg.ndata['feat'] = torch.tensor(feature_extraction_score(note_array)).float()
     # Save graph
     save_graph(path, hg)
     return hg
