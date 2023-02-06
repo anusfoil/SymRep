@@ -14,6 +14,59 @@ import pandas as pd
 
 import utils as utils
 
+
+def edges_from_note_array(note_array):
+    '''Turn note_array to list of edges.
+    Parameters
+    ----------
+    note_array : structured array
+        The partitura note_array object. Every entry has 5 attributes, i.e. onset_time, note duration, note velocity, voice, id.
+    Returns
+    -------
+    edg_src : np.array
+        The edges in the shape of (3, num_edges). every edge is of the form (u, v, t) where u is the source node, v is the destination node and t is the edge type.
+    edge_types: dict
+        A dictionary with keys 0, 1, 2, 3 and values "onset", "consecutive", "sustain", "silence".
+    '''
+
+    edge_dict = {0: "onset", 1: "consecutive", 2: "sustain", 3: "silence"}
+    edg_src = list()
+    edg_dst = list()
+    edg_type = list()
+    for i, x in enumerate(note_array):
+        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["id"] != x["id"]))[0]:
+            edg_src.append(i)
+            edg_dst.append(j)
+            edg_type.append(0)
+
+        for j in np.where(note_array["onset_div"] == x["onset_div"] + x["duration_div"])[0]:
+            edg_src.append(i)
+            edg_dst.append(j)
+            edg_type.append(1)
+
+        for j in np.where((x["onset_div"] < note_array["onset_div"]) & (
+                x["onset_div"] + x["duration_div"] > note_array["onset_div"]))[0]:
+            edg_src.append(i)
+            edg_dst.append(j)
+            edg_type.append(2)
+
+    end_times = note_array["onset_div"] + note_array["duration_div"]
+    for et in np.sort(np.unique(end_times))[:-1]:
+        if et not in note_array["onset_div"]:
+            scr = np.where(end_times == et)[0]
+            diffs = note_array["onset_div"] - et
+            tmp = np.where(diffs > 0, diffs, np.inf)
+            dst = np.where(tmp == tmp.min())[0]
+            for i in scr:
+                for j in dst:
+                    edg_src.append(i)
+                    edg_dst.append(j)
+                    edg_type.append(3)
+
+    edges = np.array([edg_src, edg_dst, edg_type])
+    return edges, edge_dict
+
+
 def load_graph(path, cfg):
 
     metadata = pd.read_csv(f"{cfg.graph.save_dir}/metadata.csv")
@@ -22,6 +75,7 @@ def load_graph(path, cfg):
         return np.array(dgl.load_graphs(f"{cfg.graph.save_dir}/{res['save_dir'].item()}")[0])
 
     return None
+
 
 def save_graph(path, computed_graphs, cfg):
 
@@ -32,6 +86,7 @@ def save_graph(path, computed_graphs, cfg):
 
     dgl.save_graphs(f"{cfg.graph.save_dir}/{N}.dgl", computed_graphs)
     return 
+
 
 def perfmidi_to_graph(path, cfg):
     """Process MIDI events to graphs for training
@@ -126,6 +181,28 @@ def musicxml_to_matrix(path, cfg):
     return matrices # (s 2 h w)
 
 
+def musicxml_to_graph(path):
+    import warnings
+    warnings.filterwarnings("ignore")  # mute partitura warnings
+
+    try:  # some parsing error....
+        score_data = pt.load_musicxml(path)
+        note_array = score_data.note_array()
+    except Exception as e:
+        print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
+        return None
+    # Get edges from note array
+    edges, edge_types = edges_from_note_array(note_array)
+    # Build graph dict for dgl
+    graph_dict = {}
+    for type_num, type_name in edge_types.items():
+        e = edges[:2, edge_types[2] == type_num]
+        graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
+    # Built HeteroGraph
+    hg = dgl.heterograph(graph_dict)
+    # Save graph
+    save_graph(path, hg)
+    return hg
 
 
 def batch_to_graph(batch, cfg, device):
