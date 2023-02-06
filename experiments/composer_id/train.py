@@ -15,8 +15,7 @@ from einops import rearrange, reduce, repeat
 import dgl
 from dgl.dataloading import GraphDataLoader
 from converters import dataloaders, matrix, sequence, graph
-from model.frontend import cnn_baseline, rnn_baseline, gnn_baseline
-from model.backend import baseline_agg
+from model import cnn_baseline, rnn_baseline, gnn_baseline, agg
 
 
 
@@ -58,6 +57,7 @@ class LitModel(LightningModule):
         elif self.cfg.experiment.symrep == "sequence":
             _input = rearrange(_input, "b s l -> (b s) l") 
         elif self.cfg.experiment.symrep == "graph":
+            # TODO: split graph here
             _input = rearrange(_input, "b s -> (b s)") 
             _input = dgl.batch(_input).to(self.device)
         _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=self.cfg.experiment.n_segs) 
@@ -136,20 +136,22 @@ class LitDataset(LightningDataModule):
 @hydra.main(config_path="../../conf", config_name="config")
 def main(cfg: OmegaConf) -> None:
 
+    torch.cuda.empty_cache()
+    
     os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
 
     # set the frontend based on the symbolic representation.
     if cfg.experiment.symrep == "matrix":
         model = cnn_baseline.CNN(cfg)
     elif cfg.experiment.symrep == "sequence":
-        model = rnn_baseline.RNN(cfg)
+        model = rnn_baseline.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
         model = gnn_baseline.GNN(cfg)
 
     lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
         model, 
-        baseline_agg.Aggregator(lit_dataset.n_classes),
+        agg.AttentionAggregator(cfg, lit_dataset.n_classes),
         cfg)
 
     trainer = Trainer(

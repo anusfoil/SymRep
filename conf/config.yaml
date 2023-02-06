@@ -3,7 +3,7 @@
 experiment:
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
-  batch_size: 8
+  batch_size: 2
   lr: 1e-5
   restore_training: False
   device: 4
@@ -14,7 +14,7 @@ experiment:
   n_segs: 4
   dataset: ASAP
   task: composer_id 
-  input_format: perfmidi  # perfmidi, musicxml, kern
+  input_format: musicxml  # perfmidi, musicxml, kern
   symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
 
@@ -31,7 +31,7 @@ sequence:
   pr_end: 109
   beat_res: 8  # 
   nb_velocities: 32
-  seq_len: 10000 # should think about how to get variable length for segments. ATEPP: 20000, ASAP: 18000
+  seq_len: 4000 # should think about how to get variable length for segments. ATEPP: 20000, ASAP: 18000
 
 graph:
   mid_window: 0.05 # window for determine whether notes are same onset, consecutive and sustain

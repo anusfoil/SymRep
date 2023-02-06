@@ -40,10 +40,10 @@ def feature_extraction_score(note_array):
     Returns
     -------
     features : np.array
-        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. onset_time, note duration, note velocity.
+        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. duration, pitch class one hot, octave one hot.
     '''
-    pc_oh = get_pc_one_hot(note_array["pitch"])
-    octave_oh = get_octave_one_hot(note_array["pitch"])
+    pc_oh = get_pc_one_hot(note_array)
+    octave_oh = get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
     out = np.hstack((duration_feature, pc_oh, octave_oh))
     return out
@@ -61,6 +61,7 @@ def edges_from_note_array(note_array):
         The edges in the shape of (3, num_edges). every edge is of the form (u, v, t) where u is the source node, v is the destination node and t is the edge type.
     edge_types: dict
         A dictionary with keys 0, 1, 2, 3 and values "onset", "consecutive", "sustain", "silence".
+        TODO: do we consider other score information, e.g. voice which is natural for representing score structure? 
     '''
 
     edge_dict = {0: "onset", 1: "consecutive", 2: "sustain", 3: "silence"}
@@ -84,6 +85,7 @@ def edges_from_note_array(note_array):
             edg_dst.append(j)
             edg_type.append(2)
 
+    """connect any note without consecutive edges with their nearest follower"""
     end_times = note_array["onset_div"] + note_array["duration_div"]
     for et in np.sort(np.unique(end_times))[:-1]:
         if et not in note_array["onset_div"]:
@@ -169,7 +171,6 @@ def perfmidi_to_graph(path, cfg):
             consec_nbs = seg_note_events[np.absolute(seg_note_events['start'] - note['end']) < cfg.graph.mid_window]
             sustain_nbs = seg_note_events[(seg_note_events['start'] <= note['start']) & (seg_note_events['end'] > note['end'])]
 
-            # TODO: should I assign them as different edge types?? different message passing??
             perfmidi_g.add_edges(np.array([j] * len(onset_nbs)), np.array(onset_nbs.index))
             perfmidi_g.add_edges(np.array([j] * len(consec_nbs)), np.array(consec_nbs.index))
             perfmidi_g.add_edges(np.array([j] * len(sustain_nbs)), np.array(sustain_nbs.index))
@@ -180,64 +181,38 @@ def perfmidi_to_graph(path, cfg):
     return perfmidi_graphs # (s, )
 
 
-def musicxml_to_matrix(path, cfg):
-    """Process musicXML to roll matrices for training"""
-
-    import warnings
-    warnings.filterwarnings("ignore") # mute partitura warnings
-
-    try: # some parsing error....
-        score_data = pt.load_musicxml(path)
-        note_events = pd.DataFrame(score_data.note_array(), columns=score_data.note_array().dtype.names)
-    except:
-        return None
-
-    end_time_divs = note_events['onset_div'].max() + note_events['duration_div'].max()
-    frames_num = cfg.matrix.resolution
-    frames_per_second = (frames_num / end_time_divs)
-    onset_roll = np.zeros((frames_num, cfg.matrix.bins))
-    voice_roll = np.zeros((frames_num, cfg.matrix.bins))
-
-    for _, note_event in note_events.iterrows():
-        """note_event: e.g., Note(start=1.009115, end=1.066406, pitch=40, velocity=93)"""
-
-        bgn_frame = min(int(round((note_event['onset_div']) * frames_per_second)), frames_num-1)
-        fin_frame = min(bgn_frame + int(round((note_event['duration_div']) * frames_per_second)), frames_num-1)
-        voice_roll[bgn_frame : fin_frame + 1, note_event['pitch']] = note_event['voice']
-        onset_roll[bgn_frame, note_event.pitch] = 1
-
-
-    """Clip rolls into segments and concatenate"""
-    onset_roll = rearrange(onset_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
-    voice_roll = rearrange(voice_roll, "(s f) n -> s f n", s=cfg.experiment.n_segs)
-    matrices = rearrange([onset_roll, voice_roll], "c s f n -> s c f n")
-
-    return matrices # (s 2 h w)
-
-
-def musicxml_to_graph(path):
+def musicxml_to_graph(path, cfg):
     import warnings
     warnings.filterwarnings("ignore")  # mute partitura warnings
 
     try:  # some parsing error....
         score_data = pt.load_musicxml(path)
-        note_array = score_data.note_array()
+        note_array = pt.utils.music.ensure_notearray(
+            score_data,
+            include_pitch_spelling=True, # adds 3 fields: step, alter, octave
+            include_key_signature=True, # adds 2 fields: ks_fifths, ks_mode
+            include_time_signature=True, # adds 2 fields: ts_beats, ts_beat_type
+            # include_metrical_position=True, # adds 3 fields: is_downbeat, rel_onset_div, tot_measure_div
+            include_grace_notes=True # adds 2 fields: is_grace, grace_type
+        )
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
+    
     # Get edges from note array
     edges, edge_types = edges_from_note_array(note_array)
     # Build graph dict for dgl
     graph_dict = {}
     for type_num, type_name in edge_types.items():
-        e = edges[:2, edge_types[2] == type_num]
+        e = edges[:, edges[2, :] == type_num]
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
     # Built HeteroGraph
+    # Test run: '../asap-dataset/Bach/Fugue/bwv_856/xml_score.musicxml' has no edges of type 0 and 3
     hg = dgl.heterograph(graph_dict)
     # Add node features
     hg.ndata['feat'] = torch.tensor(feature_extraction_score(note_array)).float()
     # Save graph
-    save_graph(path, hg)
+    save_graph(path, hg, cfg)
     return hg
 
 
@@ -247,14 +222,14 @@ def batch_to_graph(batch, cfg, device):
     Args:
         batch (2, b): ([path, path, ...], [label, label, ...])
     Returns: (matrix, label)
-        graph: 
-        label: (b, )
+        batch_graphs: 
+        batch_labels: (b, )
     """
     files, labels = batch
     b = len(batch[0])
     batch_graphs, batch_labels = [], []
 
-    if not os.path.exists(cfg.graph.save_dir):
+    if not os.path.exists(cfg.graph.save_dir): # make saving dir if not exist
         os.makedirs(cfg.graph.save_dir)
         with open(f"{cfg.graph.save_dir}/metadata.csv", "w") as f:
             f.write("path,save_dir\n")
@@ -264,7 +239,7 @@ def batch_to_graph(batch, cfg, device):
             seg_graphs = perfmidi_to_graph(path, cfg)
         elif cfg.experiment.input_format == "musicxml":
             res = musicxml_to_graph(path, cfg)
-            if type(res) == np.ndarray:
+            if type(res) == dgl.DGLHeteroGraph:
                 seg_graphs = res
             else: # in case that the xml has parsing error, we skip and copy existing data at the end.
                 continue
@@ -275,4 +250,4 @@ def batch_to_graph(batch, cfg, device):
     
     batch_graphs, batch_labels = utils.pad_batch(b, device, batch_graphs, batch_labels)
 
-    return batch_graphs, labels
+    return batch_graphs, batch_labels
