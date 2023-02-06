@@ -12,30 +12,62 @@ import dgl.data
 from dgl.dataloading import GraphDataLoader
 import pandas as pd
 
+import utils as utils
+
+def load_graph(path, cfg):
+
+    metadata = pd.read_csv(f"{cfg.graph.save_dir}/metadata.csv")
+    res = metadata[metadata['path'] == path]
+    if len(res):
+        return np.array(dgl.load_graphs(f"{cfg.graph.save_dir}/{res['save_dir'].item()}")[0])
+
+    return None
+
+def save_graph(path, computed_graphs, cfg):
+
+    metadata = pd.read_csv(f"{cfg.graph.save_dir}/metadata.csv")
+    N = len(metadata) 
+    metadata = metadata.append({"path": path, "save_dir": f"{N}.dgl"}, ignore_index=True)
+    metadata.to_csv(f"{cfg.graph.save_dir}/metadata.csv", index=False)
+
+    dgl.save_graphs(f"{cfg.graph.save_dir}/{N}.dgl", computed_graphs)
+    return 
 
 def perfmidi_to_graph(path, cfg):
     """Process MIDI events to graphs for training
-    
+    - Each note as one node, with features
+    - three type of edges: E_onset, E_consec, E_sustain
+
+    In the first run, save all graphs into assets/ and load in future runs.
     Returns:
         graphs: list of dgl.DGLGraph
     """
+
+    res = load_graph(path, cfg)
+    if type(res) == np.ndarray: 
+        return res
+
     perf_data = pretty_midi.PrettyMIDI(path)
 
     note_events = perf_data.instruments[0].notes
     note_events = pd.DataFrame([(n.start, n.end, n.duration, n.pitch, n.velocity) for n in note_events], 
                 columns=['start', 'end', 'duration', 'pitch', 'velocity'])
-    pedal_events = perf_data.instruments[0].control_changes # TODO: deal with pedal events!!!
+    
+    """add sustain pedal value as a feature at the event"""
+    pedal_events = perf_data.instruments[0].control_changes 
     pedal_events = pd.concat([
         pd.DataFrame({'time': [0], "value": [0]}),
         pd.DataFrame([(p.time, p.value) for p in pedal_events if p.number == 67], columns=['time', 'value'])])
-
     note_events["sustain_value"] = note_events.apply(
-        lambda row: pedal_events[pedal_events['time'] < row['start']].iloc[0]['value'], axis=1)
+        lambda row: pedal_events[pedal_events['time'] <= row['start']].iloc[0]['value'], axis=1)
 
     perfmidi_graphs = []
+    seg_length = int(len(note_events) / cfg.experiment.n_segs)
     for i in range(cfg.experiment.n_segs):
-        seg_note_events = note_events.iloc[i:]
-        perfmidi_g = dgl.graph(([], []), num_nodes=len(seg_note_events))
+        """process on each segment of note events"""
+        seg_note_events = note_events.iloc[i*seg_length : i*seg_length+seg_length]
+        seg_note_events.index = range(seg_length)
+        perfmidi_g = dgl.graph(([], []), num_nodes=seg_length)
 
         """add node(note) features"""
         perfmidi_g.ndata['general_note_feats'] = torch.tensor(np.array(seg_note_events)) # general features are just the 5 terms in note events, plus pedal value at the time
@@ -54,7 +86,7 @@ def perfmidi_to_graph(path, cfg):
 
         perfmidi_graphs.append(perfmidi_g)
 
-    print('here')
+    save_graph(path, perfmidi_graphs, cfg)
     return perfmidi_graphs # (s, )
 
 
@@ -108,23 +140,24 @@ def batch_to_graph(batch, cfg, device):
     b = len(batch[0])
     batch_graphs = []
 
+    if not os.path.exists(cfg.graph.save_dir):
+        os.makedirs(cfg.graph.save_dir)
+        with open(f"{cfg.graph.save_dir}/metadata.csv", "w") as f:
+            f.write("path,save_dir\n")
+
     for idx, (path, _) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
-            seg_matrices = perfmidi_to_graph(path, cfg)
+            seg_graphs = perfmidi_to_graph(path, cfg)
         elif cfg.experiment.input_format == "musicxml":
             res = musicxml_to_graph(path, cfg)
             if type(res) == np.ndarray:
-                seg_matrices = res
+                seg_graphs = res
             else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                labels = torch.cat((labels[0:idx], labels[idx+1:]))
                 continue
         elif cfg.experiment.input_format == "kern":
-            seg_matrices = kern_to_graph(path, cfg)
-        batch_graphs.append(seg_matrices)
+            seg_graphs = kern_to_graph(path, cfg)
+        batch_graphs.append(seg_graphs)
     
-    n_skipped = b - len(batch_graphs)
-    batch_graphs += [batch_graphs[-1]] * n_skipped
-    labels = torch.cat((labels, repeat(labels[-1:], "n -> (n b)", b=n_skipped)))
+    batch_graphs, batch_labels = utils.pad_batch(b, device, batch_graphs, batch_labels)
 
-    batch_graphs = np.array(batch_graphs)
     return batch_graphs, labels

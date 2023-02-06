@@ -3,7 +3,7 @@
 experiment:
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
-  batch_size: 4
+  batch_size: 8
   lr: 1e-5
   restore_training: False
   device: 4
@@ -14,7 +14,7 @@ experiment:
   n_segs: 4
   dataset: ASAP
   task: composer_id 
-  input_format: perfmidi # perfmidi, musicxml, kern
+  input_format: perfmidi  # perfmidi, musicxml, kern
   symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
 
@@ -35,6 +35,7 @@ sequence:
 
 graph:
   mid_window: 0.05 # window for determine whether notes are same onset, consecutive and sustain
+  save_dir: "/homes/hz009/Research/SymRep/assets/${experiment.dataset}/${experiment.input_format}"
 
 # DATASET 
 dataset:

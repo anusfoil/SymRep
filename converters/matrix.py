@@ -4,6 +4,7 @@ import pretty_midi
 import partitura as pt
 from einops import rearrange, repeat
 import pandas as pd
+import utils as utils
 
 
 def perfmidi_to_matrix(path, cfg):
@@ -120,7 +121,6 @@ def kern_to_matrix(path, cfg):
 
 def batch_to_matrix(batch, cfg, device):
     """Map the batch to input piano roll matrices
-    TODO: try onsets+frames 3d matrix, and try the pedal matrix as well
 
     Args:
         batch (2, b): ([path, path, ...], [label, label, ...])
@@ -130,8 +130,9 @@ def batch_to_matrix(batch, cfg, device):
     """
     files, labels = batch
     b = len(batch[0])
-    batch_matrix = []
-    for idx, (path, _) in enumerate(zip(files, labels)):
+    batch_matrix, batch_labels = [], []
+
+    for idx, (path, l) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
             seg_matrices = perfmidi_to_matrix(path, cfg)
         elif cfg.experiment.input_format == "musicxml":
@@ -139,18 +140,15 @@ def batch_to_matrix(batch, cfg, device):
             if type(res) == np.ndarray:
                 seg_matrices = res
             else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                labels = torch.cat((labels[0:idx], labels[idx+1:]))
                 continue
         elif cfg.experiment.input_format == "kern":
             seg_matrices = kern_to_matrix(path, cfg)
         batch_matrix.append(seg_matrices)
-    
-    n_skipped = b - len(batch_matrix)
-    batch_matrix += [batch_matrix[-1]] * n_skipped
-    labels = torch.cat((labels, repeat(labels[-1:], "n -> (n b)", b=n_skipped)))
+        batch_labels.append(l)
 
-    batch_matrix = torch.tensor(np.array(batch_matrix), device=device, dtype=torch.float32) 
+    batch_matrix, batch_labels = utils.pad_batch(b, device, batch_matrix, batch_labels)
     assert(batch_matrix.shape == (b, cfg.experiment.n_segs, cfg.matrix.n_channels,
-        int(cfg.matrix.resolution / cfg.experiment.n_segs), 
-        cfg.matrix.bins,))
-    return batch_matrix, labels
+                                int(cfg.matrix.resolution / cfg.experiment.n_segs), 
+                                cfg.matrix.bins,))
+    
+    return batch_matrix, batch_labels

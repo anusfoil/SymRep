@@ -6,6 +6,7 @@ from einops import rearrange, repeat
 import pandas as pd
 from miditok import MIDILike, MusicXML
 from miditoolkit import MidiFile
+import utils as utils
 
 
 def construct_tokenizer(cfg):
@@ -19,7 +20,7 @@ def construct_tokenizer(cfg):
                         'Tempo': True, 
                         'nb_tempos': 32,  # nb of tempo bins
                         'tempo_range': (40, 250)},  # (min, max)
-            mask=True)
+            mask=False)
     elif cfg.experiment.input_format == "musicxml":
         tokenizer = MusicXML(
             range(cfg.sequence.pr_start, cfg.sequence.pr_end), 
@@ -29,7 +30,7 @@ def construct_tokenizer(cfg):
                         'Tempo': True, 
                         'nb_tempos': 32,  # nb of tempo bins
                         'tempo_range': (40, 250)},  # (min, max)
-            mask=True)
+            mask=False)
         
     
     return tokenizer
@@ -96,26 +97,21 @@ def batch_to_sequence(batch, cfg, device):
     """
     files, labels = batch
     b = len(batch[0])
-    batch_sequence = []
+    batch_sequence, batch_labels = [], []
 
     tokenizer = construct_tokenizer(cfg)
-    for idx, (path, _) in enumerate(zip(files, labels)):
+    for idx, (path, l) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
             seg_sequences = perfmidi_to_sequence(path, tokenizer, cfg)
         elif cfg.experiment.input_format == "musicxml":
             res = musicxml_to_sequence(path, tokenizer, cfg)
             if type(res) == np.ndarray:
-                    seg_sequences = res
+                seg_sequences = res
             else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                labels = torch.cat((labels[0:idx], labels[idx+1:]))
                 continue
         elif cfg.experiment.input_format == "kern":
             seg_sequences = kern_to_sequence(path, tokenizer, cfg)
         batch_sequence.append(seg_sequences)
+        batch_labels.append(l)
 
-    n_skipped = b - len(batch_sequence)
-    batch_sequence += [batch_sequence[-1]] * n_skipped
-    labels = torch.cat((labels, repeat(labels[-1:], "n -> (n b)", b=n_skipped)))
-
-    batch_sequence = torch.tensor(np.array(batch_sequence), device=device, dtype=torch.float32) 
-    return batch_sequence, labels
+    return utils.pad_batch(b, device, batch_sequence, batch_labels)
