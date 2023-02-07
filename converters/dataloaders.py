@@ -1,12 +1,33 @@
 import os, sys
 sys.path.extend(["../../symrep", "../../"])
 import torch
-from torch.utils.data import Dataset, DataLoader
-import torchnlp 
+from torch.utils.data import Dataset, DataLoader, Sampler, BatchSampler
 from torchnlp.encoders import LabelEncoder
 import pandas as pd
 
-import hook
+class LengthSampler(BatchSampler):
+    """Bucket the data that's of similar length into one batch, to avoid padding redundancy
+    
+    How it works:
+        using the duration from metadata, order the pieces from short to long and then sample
+    """
+    
+    def __init__(self, dataset):
+        
+        self.dataset = dataset
+        self.metadata = dataset.dataset.metadata.iloc[dataset.indices]
+        self.num_samples = len(dataset)
+        self.ordered_index = self.order_by_length()
+        
+    def __iter__(self):
+        for i in self.ordered_index:
+            yield self.dataset.indices.index(i)
+    
+    def __len__(self):
+        return self.num_samples
+    
+    def order_by_length(self):
+        return self.metadata.sort_values(by=['track_duration'], ascending=False).index
 
 
 class ASAP(Dataset):

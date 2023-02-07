@@ -30,11 +30,11 @@ class RNN(nn.Module):
         
 
 class AttentionEncoder(nn.Module):
-    def __init__(self, cfg, n_layers=3):
+    def __init__(self, cfg, n_layers=1):
         super().__init__()
 
-        self.hid_dim = 128
-        self.emb = nn.Embedding(500, self.hid_dim) #vocabulary shouldn't be larger than 500
+        self.hid_dim = 64
+        self.emb = nn.Embedding(500, self.hid_dim, padding_idx=0) #vocabulary shouldn't be larger than 500
         self.pe = PositionalEncoding(self.hid_dim)
         self.attn_layers = nn.Sequential(
             *[utils.AttentionEncodingBlock(self.hid_dim) for _ in range(n_layers)]

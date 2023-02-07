@@ -10,6 +10,7 @@ from torchmetrics import Accuracy, AUROC, F1Score
 from pytorch_lightning import Trainer, LightningModule, LightningDataModule
 from pytorch_lightning import loggers as pl_loggers
 from pytorch_lightning.callbacks import ModelCheckpoint
+import numpy as np
 from einops import rearrange, reduce, repeat
 
 import dgl
@@ -17,7 +18,7 @@ from dgl.dataloading import GraphDataLoader
 from converters import dataloaders, matrix, sequence, graph
 from model import cnn_baseline, rnn_baseline, gnn_baseline, agg
 
-
+import hook
 
 class LitModel(LightningModule):
     def __init__(self, model_frontend, model_backend, cfg):
@@ -52,15 +53,21 @@ class LitModel(LightningModule):
 
     def forward_pass(self, _input):
         """the same forward pass in both training_step and validation_step"""
-        if self.cfg.experiment.symrep == "matrix":
-            _input = rearrange(_input, "b s c h w -> (b s) c h w") 
-        elif self.cfg.experiment.symrep == "sequence":
-            _input = rearrange(_input, "b s l -> (b s) l") 
-        elif self.cfg.experiment.symrep == "graph":
-            # TODO: split graph here
-            _input = rearrange(_input, "b s -> (b s)") 
-            _input = dgl.batch(_input).to(self.device)
-        _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=self.cfg.experiment.n_segs) 
+    
+        if self.cfg.experiment.symrep == "graph":
+            batch_n_segs = [len(data) for data in _input]
+            _input = dgl.batch(np.concatenate(_input)).to(self.device)
+            _seg_emb = torch.split(self.model_frontend(_input), batch_n_segs)
+            hook()
+        else:
+            n_segs = _input.shape[1]
+            if self.cfg.experiment.symrep == "matrix":
+                _input = rearrange(_input, "b s c h w -> (b s) c h w") 
+            elif self.cfg.experiment.symrep == "sequence":
+                _input = rearrange(_input, "b s l -> (b s) l") 
+            _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=n_segs) 
+
+
         _logits = self.model_backend(_seg_emb) # b n
         _pred = F.softmax(_logits, dim=1).argmax(dim=1)   
         return _logits, _pred     
@@ -126,10 +133,12 @@ class LitDataset(LightningDataModule):
 
     def train_dataloader(self):
         return DataLoader(self.train_set, 
+                            sampler=dataloaders.LengthSampler(self.train_set),
                             batch_size=self.cfg.experiment.batch_size)
     
     def val_dataloader(self):
         return DataLoader(self.valid_set, 
+                            sampler=dataloaders.LengthSampler(self.valid_set),
                             batch_size=self.cfg.experiment.batch_size)
 
 
@@ -156,7 +165,7 @@ def main(cfg: OmegaConf) -> None:
 
     trainer = Trainer(
         accelerator="gpu",
-        gpus=[cfg.experiment.device],
+        gpus=cfg.experiment.device,
         max_epochs=cfg.experiment.epoch,
         logger=pl_loggers.WandbLogger(
                 project="symrep",

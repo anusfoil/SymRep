@@ -69,7 +69,7 @@ def edges_from_note_array(note_array):
     edg_dst = list()
     edg_type = list()
     for i, x in enumerate(note_array):
-        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["id"] != x["id"]))[0]:
+        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["pitch"] != x["pitch"]))[0]:
             edg_src.append(i)
             edg_dst.append(j)
             edg_type.append(0)
@@ -136,7 +136,7 @@ def perfmidi_to_graph(path, cfg):
 
     res = load_graph(path, cfg)
     if type(res) == np.ndarray: 
-        return res
+        return res[0]
 
     perf_data = pretty_midi.PrettyMIDI(path)
 
@@ -161,7 +161,7 @@ def perfmidi_to_graph(path, cfg):
         perfmidi_g = dgl.graph(([], []), num_nodes=seg_length)
 
         """add node(note) features"""
-        perfmidi_g.ndata['general_note_feats'] = torch.tensor(np.array(seg_note_events)) # general features are just the 5 terms in note events, plus pedal value at the time
+        perfmidi_g.ndata['feat'] = torch.tensor(np.array(seg_note_events)) # general features are just the 5 terms in note events, plus pedal value at the time
 
         for j, note in seg_note_events.iterrows():
             """note_event: e.g., Note(start=1.009115, end=1.066406, duration=0.057291, pitch=40, velocity=93)"""
@@ -182,6 +182,11 @@ def perfmidi_to_graph(path, cfg):
 
 
 def musicxml_to_graph(path, cfg):
+
+    res = load_graph(path, cfg)
+    if type(res) == np.ndarray: 
+        return res[0]
+
     import warnings
     warnings.filterwarnings("ignore")  # mute partitura warnings
 
@@ -207,13 +212,31 @@ def musicxml_to_graph(path, cfg):
         e = edges[:, edges[2, :] == type_num]
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
     # Built HeteroGraph
-    # Test run: '../asap-dataset/Bach/Fugue/bwv_856/xml_score.musicxml' has no edges of type 0 and 3
     hg = dgl.heterograph(graph_dict)
     # Add node features
     hg.ndata['feat'] = torch.tensor(feature_extraction_score(note_array)).float()
     # Save graph
     save_graph(path, hg, cfg)
     return hg
+
+
+def get_subgraphs(graph, cfg):
+    """ split the graph into segment subgraphs with fixed or flexible number of n_segs
+    Return:
+        seg_subgraphs (list of dgl.DGLHeteroGraph)
+    """
+
+    """choose the number of segments to clip"""
+    if cfg.experiment.n_segs:
+        n_segs = cfg.experiment.n_segs
+        l = int(graph.num_nodes() / cfg.experiment.n_segs)
+    else:
+        n_segs = int(graph.num_nodes() / cfg.graph.subgraph_size) + 1
+        l = cfg.graph.subgraph_size
+
+    seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
+
+    return seg_subgraphs
 
 
 def batch_to_graph(batch, cfg, device):
@@ -236,18 +259,19 @@ def batch_to_graph(batch, cfg, device):
 
     for idx, (path, l) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
-            seg_graphs = perfmidi_to_graph(path, cfg)
+            graph = perfmidi_to_graph(path, cfg)
         elif cfg.experiment.input_format == "musicxml":
             res = musicxml_to_graph(path, cfg)
             if type(res) == dgl.DGLHeteroGraph:
-                seg_graphs = res
+                graph = res
             else: # in case that the xml has parsing error, we skip and copy existing data at the end.
                 continue
         elif cfg.experiment.input_format == "kern":
-            seg_graphs = kern_to_graph(path, cfg)
-        batch_graphs.append(seg_graphs)
+            graph = kern_to_graph(path, cfg)
+        
+        batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)
     
-    batch_graphs, batch_labels = utils.pad_batch(b, device, batch_graphs, batch_labels)
+    batch_graphs, batch_labels = utils.pad_batch(b, cfg, device, batch_graphs, batch_labels)
 
-    return batch_graphs, batch_labels
+    return np.array(batch_graphs), batch_labels

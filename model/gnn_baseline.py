@@ -18,7 +18,7 @@ class GNN(nn.Module):
         
 
     def forward(self, g):
-        h = F.relu(self.conv1(g, g.ndata["general_note_feats"].float()))
+        h = F.relu(self.conv1(g, g.ndata["feat"].float()))
         h = F.relu(self.conv2(g, h))
         h = F.relu(self.conv3(g, h))
         h = F.relu(self.conv4(g, h))

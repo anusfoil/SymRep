@@ -1,6 +1,6 @@
 import torch.nn as nn
 from torch.nn import MultiheadAttention
-from einops.layers.torch import Rearrange
+from einops.layers.torch import Rearrange, Reduce
 from einops import repeat
 import model_utils as model_utils
 
@@ -32,8 +32,8 @@ class AttentionAggregator(nn.Module):
         self.emb_dim =  cfg.experiment.emb_dim
         self.attn_block = model_utils.AttentionEncodingBlock(cfg.experiment.emb_dim)
         self.pred_proj = nn.Sequential(
-            Rearrange('b s v -> b (s v)'),
-            nn.Linear(cfg.experiment.n_segs * self.emb_dim, self.emb_dim),
+            Reduce('b s v -> b v', "mean"),
+            nn.Linear(self.emb_dim, self.emb_dim),
             nn.ReLU(),
             nn.Linear(self.emb_dim, n_classes)
             )
