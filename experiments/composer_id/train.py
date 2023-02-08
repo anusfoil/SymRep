@@ -160,7 +160,7 @@ def main(cfg: OmegaConf) -> None:
     elif cfg.experiment.symrep == "sequence":
         model = rnn_baseline.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
-        model = gnn_baseline.GNN(cfg)
+        model = gnn_baseline.GNN(out_dim=cfg.experiment.emb_dim)
 
     lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
