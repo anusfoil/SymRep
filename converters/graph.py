@@ -31,12 +31,17 @@ def get_octave_one_hot(note_array):
     return one_hot
 
 
-def feature_extraction_score(note_array):
+def feature_extraction_score(note_array, score=None, include_meta=False):
     '''Extract features from note_array.
     Parameters
     ----------
     note_array : structured array
         The partitura note_array object. Every entry has 5 attributes, i.e. onset_time, note duration, note velocity, voice, id.
+    score : partitura score object (optional)
+        The partitura score object. If provided, the meta features can be extracted.
+    include_meta : bool
+        Whether to include meta features.
+
     Returns
     -------
     features : np.array
@@ -45,26 +50,33 @@ def feature_extraction_score(note_array):
     pc_oh = get_pc_one_hot(note_array)
     octave_oh = get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
-    out = np.hstack((duration_feature, pc_oh, octave_oh))
+    if include_meta and score is not None:
+        meta_features, _ = pt.musicanalysis.make_note_features(score, "all")
+        out = np.hstack((duration_feature, pc_oh, octave_oh, meta_features))
+    else:
+        out = np.hstack((duration_feature, pc_oh, octave_oh))
     return out
 
 
-def edges_from_note_array(note_array):
+def edges_from_note_array(note_array, measures=None):
     '''Turn note_array to list of edges.
+
     Parameters
     ----------
     note_array : structured array
         The partitura note_array object. Every entry has 5 attributes, i.e. onset_time, note duration, note velocity, voice, id.
+    measures : numpy array (optional)
+        The measures array. If provided, it will create voice edges, for consecutive notes in the same voices that belong in the same measure.
+
     Returns
     -------
     edg_src : np.array
         The edges in the shape of (3, num_edges). every edge is of the form (u, v, t) where u is the source node, v is the destination node and t is the edge type.
     edge_types: dict
-        A dictionary with keys 0, 1, 2, 3 and values "onset", "consecutive", "sustain", "silence".
-        TODO: do we consider other score information, e.g. voice which is natural for representing score structure? 
+        A dictionary with keys 0, 1, 2, 3 and values "onset", "consecutive", "sustain", "silence", "voice.
     '''
 
-    edge_dict = {0: "onset", 1: "consecutive", 2: "sustain", 3: "silence"}
+    edge_dict = {0: "onset", 1: "consecutive", 2: "sustain", 3: "silence", 4: "voice"}
     edg_src = list()
     edg_dst = list()
     edg_type = list()
@@ -98,6 +110,18 @@ def edges_from_note_array(note_array):
                     edg_src.append(i)
                     edg_dst.append(j)
                     edg_type.append(3)
+
+    if measures is not None:
+        for m_num in range(len(measures)):
+            start = measures[m_num, 0]
+            end = measures[m_num, 1]
+            note_array_seg = np.where((note_array["onset_div"] >= start) & (note_array["onset_div"] < end))[0]
+            for idx, i in enumerate(note_array_seg):
+                for j in note_array_seg[idx:]:
+                    if note_array[i]["voice"] == note_array[j]["voice"] and i != j:
+                        edg_src.append(i)
+                        edg_dst.append(j)
+                        edg_type.append(4)
 
     edges = np.array([edg_src, edg_dst, edg_type])
     return edges, edge_dict
@@ -203,9 +227,9 @@ def musicxml_to_graph(path, cfg):
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
-    
+    measures = np.array([[m.start.t, m.end.t] for m in score_data[0].measures])
     # Get edges from note array
-    edges, edge_types = edges_from_note_array(note_array)
+    edges, edge_types = edges_from_note_array(note_array, measures)
     # Build graph dict for dgl
     graph_dict = {}
     for type_num, type_name in edge_types.items():
