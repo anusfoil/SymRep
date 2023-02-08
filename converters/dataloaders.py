@@ -5,6 +5,17 @@ from torch.utils.data import Dataset, DataLoader, Sampler, BatchSampler
 from torchnlp.encoders import LabelEncoder
 import pandas as pd
 
+def drop_uncommon_classes(metadata, label_col, threshold=0.03):
+    """sort the classes by distribution and drop the data that consists of the last threshold\% of the set"""
+
+    count = metadata[label_col].value_counts().to_frame("count")
+    count['agg_percent'] = count.loc[::-1, 'count'].cumsum()[::-1] / count.sum().values
+    uncommon_label = count[count['agg_percent'] < threshold].index
+
+    hook()
+    return metadata[~metadata[label_col].isin(uncommon_label)]
+
+
 class LengthSampler(BatchSampler):
     """Bucket the data that's of similar length into one batch, to avoid padding redundancy
     
@@ -35,18 +46,40 @@ class ASAP(Dataset):
     The task-corresponding label is encoded with the label_encoder
     """
     def __init__(self, cfg):
+        torch.manual_seed(cfg.experiment.random_seed)
         self.input_format = cfg.experiment.input_format
         self.task = cfg.experiment.task
         self.metadata = pd.read_csv(cfg.dataset.ASAP.metadata_file)
         self.dataset_dir = cfg.dataset.ASAP.dataset_dir
 
         if self.task == "composer_id":
+            self.metadata = drop_uncommon_classes(self.metadata, 'composer')
             self.label_column = self.metadata['composer']
         elif self.task == "performer_id":
+            self.metadata = drop_uncommon_classes(self.metadata, 'perfomer')
             self.label_column = self.metadata['performer']
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 
                 reserved_labels=['unknown'], unknown_index=0)
+
+        
+        """
+        Beethoven       185
+        Bach            163
+        Chopin          162
+        Liszt            67
+        Schubert         55
+        Schumann         26
+        Haydn            23
+        Mozart           10
+        Scriabin          9
+        Ravel             9
+        Prokofiev         5
+        Balakirev         4
+        Rachmaninoff      4
+        Debussy           3
+        Glinka            2
+        """
     
     def __len__(self):
         return len(self.metadata)
@@ -68,6 +101,7 @@ class ATEPP(Dataset):
     The task-corresponding label is encoded with the label_encoder
     """
     def __init__(self, cfg):
+        torch.manual_seed(cfg.experiment.random_seed)
         self.input_format = cfg.experiment.input_format
         self.task = cfg.experiment.task
         self.dataset_dir = cfg.dataset.ATEPP.dataset_dir
@@ -78,8 +112,10 @@ class ATEPP(Dataset):
             self.metadata = self.metadata[~self.metadata['score_path'].isna()]
 
         if self.task == "composer_id":
+            self.metadata = drop_uncommon_classes(self.metadata, 'composer')
             self.label_column = self.metadata['composer']
         elif self.task == "performer_id":
+            self.metadata = drop_uncommon_classes(self.metadata, 'artist', threshold=0.1)
             self.label_column = self.metadata['artist']
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 

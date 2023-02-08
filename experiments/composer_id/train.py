@@ -5,7 +5,8 @@ from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import  DataLoader, random_split
+from torch.utils.data import  DataLoader, SubsetRandomSampler
+from sklearn.model_selection import train_test_split
 from torchmetrics import Accuracy, AUROC, F1Score
 from pytorch_lightning import Trainer, LightningModule, LightningDataModule
 from pytorch_lightning import loggers as pl_loggers
@@ -132,19 +133,24 @@ class LitDataset(LightningDataModule):
         label_encoder = dataset.label_encoder
         self.n_classes = label_encoder.vocab_size
 
-        train_len = int(len(dataset)*0.8)
-        self.train_set, self.valid_set = random_split(dataset, [train_len, len(dataset) - train_len])
+        train_indices,test_indices = train_test_split((dataset),test_size=0.2, stratify=dataset.label_column) 
+        self.train_sampler = SubsetRandomSampler(train_indices)
+        self.test_sampler = SubsetRandomSampler(test_indices)
+
+        self.train_dataloader = DataLoader(dataset, 
+                            sampler=self.train_sampler,
+                            batch_size=self.cfg.experiment.batch_size)
+        self.val_dataloader = DataLoader(dataset, 
+                            sampler=self.test_sampler,
+                            batch_size=self.cfg.experiment.batch_size)
+        hook()
 
 
     def train_dataloader(self):
-        return DataLoader(self.train_set, 
-                            sampler=dataloaders.LengthSampler(self.train_set),
-                            batch_size=self.cfg.experiment.batch_size)
+        return self.train_dataloader
     
     def val_dataloader(self):
-        return DataLoader(self.valid_set, 
-                            sampler=dataloaders.LengthSampler(self.valid_set),
-                            batch_size=self.cfg.experiment.batch_size)
+        return self.val_dataloader
 
 
 @hydra.main(config_path="../../conf", config_name="config")

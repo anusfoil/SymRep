@@ -227,10 +227,10 @@ def get_subgraphs(graph, cfg):
     """
 
     """choose the number of segments to clip"""
-    if cfg.experiment.n_segs:
+    if cfg.experiment.n_segs: # fixed
         n_segs = cfg.experiment.n_segs
         l = int(graph.num_nodes() / cfg.experiment.n_segs)
-    else:
+    else: # flexible
         n_segs = int(graph.num_nodes() / cfg.graph.subgraph_size) + 1
         l = cfg.graph.subgraph_size
 

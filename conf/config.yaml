@@ -1,6 +1,7 @@
 
 
 experiment:
+  random_seed: 13
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
   batch_size: 2
@@ -12,7 +13,7 @@ experiment:
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   n_segs: null   # if null, will use varied number of segments, determined by piece length and rep parameters
-  dataset: ASAP  # ASAP or ATEPP
+  dataset: ATEPP  # ASAP or ATEPP
   task: composer_id  # composer_id, performer_id
   input_format: musicxml  # perfmidi, musicxml, kern
   symrep: graph # matrix, sequence, graph
