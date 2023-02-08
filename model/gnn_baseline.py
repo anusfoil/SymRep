@@ -5,23 +5,33 @@ import dgl
 import dgl.function as fn
 import dgl.data
 from dgl.nn import GraphConv, SAGEConv
+import dgl.nn.pytorch as dglnn
 from einops.layers.torch import Rearrange
 
 
 class GNN(nn.Module):
     def __init__(self, cfg):
         super(GNN, self).__init__()
-        self.conv1 = SAGEConv(6, 16, aggregator_type='gcn')
-        self.conv2 = SAGEConv(16, 32, aggregator_type='gcn')
-        self.conv3 = SAGEConv(32, 64, aggregator_type='gcn')
-        self.conv4 = SAGEConv(64, cfg.experiment.emb_dim, aggregator_type='gcn')
+        self.in_feat_dim = 23
+        self.hid_dim = 32
+        self.conv1 = dglnn.HeteroGraphConv({
+            "onset": SAGEConv(self.in_feat_dim, self.hid_dim, aggregator_type='gcn'),
+            "consecutive": SAGEConv(self.in_feat_dim, self.hid_dim, aggregator_type='gcn'),
+            "sustain": SAGEConv(self.in_feat_dim, self.hid_dim, aggregator_type='gcn'),
+            "silence": SAGEConv(self.in_feat_dim, self.hid_dim, aggregator_type='gcn'),
+        }, aggregate='sum')
+        self.conv2 = dglnn.HeteroGraphConv({
+            "onset": SAGEConv(self.hid_dim, cfg.experiment.emb_dim, aggregator_type='gcn'),
+            "consecutive": SAGEConv(self.hid_dim, cfg.experiment.emb_dim, aggregator_type='gcn'),
+            "sustain": SAGEConv(self.hid_dim, cfg.experiment.emb_dim, aggregator_type='gcn'),
+            "silence": SAGEConv(self.hid_dim, cfg.experiment.emb_dim, aggregator_type='gcn'),
+        }, aggregate='sum')
         
 
     def forward(self, g):
-        h = F.relu(self.conv1(g, g.ndata["feat"].float()))
-        h = F.relu(self.conv2(g, h))
-        h = F.relu(self.conv3(g, h))
-        h = F.relu(self.conv4(g, h))
-        g.ndata['h'] = h
+        h = self.conv1(g, {"note": g.ndata["feat"].float()})
+        h = {k: F.relu(v) for k, v in h.items()}
+        h = self.conv2(g, h)
+        g.ndata['h'] = h['note']
         return dgl.mean_nodes(g, "h")
         

@@ -40,7 +40,7 @@ def feature_extraction_score(note_array):
     Returns
     -------
     features : np.array
-        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. duration, pitch class one hot, octave one hot.
+        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. duration (1), pitch class one hot (12), octave one hot (10).
     '''
     pc_oh = get_pc_one_hot(note_array)
     octave_oh = get_octave_one_hot(note_array)

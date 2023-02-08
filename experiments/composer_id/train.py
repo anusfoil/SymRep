@@ -52,13 +52,19 @@ class LitModel(LightningModule):
 
 
     def forward_pass(self, _input):
-        """the same forward pass in both training_step and validation_step"""
+        """the same forward pass in both training_step and validation_step
+        
+        Graph: forward pass keeps each piece of data with different number of subgraphs without padding. With 
+                uneven number of segments, they pass through backend individually.
+        """
     
         if self.cfg.experiment.symrep == "graph":
             batch_n_segs = [len(data) for data in _input]
             _input = dgl.batch(np.concatenate(_input)).to(self.device)
             _seg_emb = torch.split(self.model_frontend(_input), batch_n_segs)
-            hook()
+            _logits = rearrange([
+                self.model_backend(rearrange(seg, "s v -> 1 s v")) for seg in _seg_emb],
+                "b 1 n -> b n")
         else:
             n_segs = _input.shape[1]
             if self.cfg.experiment.symrep == "matrix":
@@ -66,9 +72,8 @@ class LitModel(LightningModule):
             elif self.cfg.experiment.symrep == "sequence":
                 _input = rearrange(_input, "b s l -> (b s) l") 
             _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=n_segs) 
-
-
-        _logits = self.model_backend(_seg_emb) # b n
+            _logits = self.model_backend(_seg_emb) # b n
+        
         _pred = F.softmax(_logits, dim=1).argmax(dim=1)   
         return _logits, _pred     
 
