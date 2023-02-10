@@ -272,8 +272,13 @@ def musicxml_to_graph(path, cfg):
     # Build graph dict for dgl
     graph_dict = {}
     for type_num, type_name in edge_types.items():
+
         e = edges[:, edges[2, :] == type_num]
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
+        # Pipeline for adding reverse edges on consecutive, sustain, rest, and voice edges.
+        if type_name == "onset":
+            continue
+        graph_dict[('note', type_name+"_rev", 'note')] = torch.tensor(e[1]), torch.tensor(e[0])
     hg = dgl.heterograph(graph_dict)
 
     # Add node features
