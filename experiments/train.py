@@ -1,4 +1,4 @@
-import os, sys
+import os, sys, random
 sys.path.extend(["../symrep", "../", "../model", "../converters"])
 import hydra
 from omegaconf import DictConfig, OmegaConf
@@ -136,7 +136,7 @@ class LitDataset(LightningDataModule):
         self.n_classes = label_encoder.vocab_size
 
         train_indices, test_indices = train_test_split((range(len(dataset))), 
-                                                       test_size=0.2, 
+                                                       test_size=cfg.experiment.test_split_size, 
                                                        stratify=dataset.label_column,
                                                        random_state=cfg.experiment.random_seed) 
         self.train_sampler = SubsetRandomSampler(train_indices)
@@ -155,6 +155,10 @@ class LitDataset(LightningDataModule):
 
 @hydra.main(config_path="../conf", config_name="config")
 def main(cfg: OmegaConf) -> None:
+
+    torch.manual_seed(cfg.experiment.random_seed)
+    random.seed(cfg.experiment.random_seed)
+    torch.use_deterministic_algorithms(True)
 
     torch.cuda.empty_cache()
     
@@ -190,8 +194,8 @@ def main(cfg: OmegaConf) -> None:
             ), 
             EarlyStopping(
                 monitor="val_acc",
-                min_delta=0.01,
-                patience=10,  # NOTE no. val epochs, not train epochs
+                min_delta=cfg.experiment.es_threshold,
+                patience=cfg.experiment.es_patience,  # NOTE no. val epochs, not train epochs
                 verbose=False,
                 mode="max",
             )]

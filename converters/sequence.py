@@ -1,9 +1,11 @@
+import os
 import torch
 import numpy as np
-import pretty_midi
+import copy
 import partitura as pt
 from einops import rearrange, repeat
 import pandas as pd
+import mido
 from miditok import MIDILike, REMI, MusicXML
 from miditoolkit import MidiFile
 import utils as utils
@@ -36,49 +38,62 @@ def construct_tokenizer(cfg):
     return tokenizer
 
 
-def clip_and_pad(tokens, cfg):
-    """
-    1. clip the token sequence into fixed or flexible length
-    2. pad each segment 
-    
+def clip_segs(tokens, cfg):
+    """clip the token sequence according to segmentation scheme
+
     Return:
         seg_tokens: np.array: (n_segs, seg_length)
     """
 
     """choose the number of segments to clip"""
-    if cfg.experiment.n_segs:
+    if cfg.segmentation.seg_type == "fix_num":
         n_segs = cfg.experiment.n_segs
         l = int(len(tokens) / cfg.experiment.n_segs)
-    else:
-        n_segs = int(len(tokens) / cfg.sequence.seq_len) + 1
-        l = cfg.sequence.seq_len
+    elif cfg.segmentation.seg_type == "fix_size":
+        n_segs = int(len(tokens) / cfg.sequence.max_seq_len) + 1
+        l = cfg.sequence.max_seq_len
+
 
     """Clip rolls into segments and add padding"""
     seg_tokens = []
     for i in range(n_segs): 
-        seg_token = tokens[ i*l: i*l+l ][:cfg.sequence.seq_len] # clip the segments with maximum seq len - some parts are lost
-        seg_tokens.append(np.pad(seg_token, 
-                            (0, cfg.sequence.seq_len - len(seg_token)), 
-                            mode="constant",
-                            constant_values=1)) 
-    seg_tokens = np.array(seg_tokens)
+        seg_tokens.append(tokens[ i*l: i*l+l ][:cfg.sequence.max_seq_len])
     return seg_tokens
 
 
+def pad_segs(seg_tokens, cfg):
+    seg_tokens = [np.pad(seg_token, (0, cfg.sequence.max_seq_len - len(seg_token)), mode="constant", constant_values=1)
+                 for seg_token in seg_tokens]
+    return np.array(seg_tokens)
+    
+
 def perfmidi_to_sequence(path, tokenizer, cfg):
     """Process MIDI events to sequences using miditok
-    tokenization scheme: MidiLike, REMI
+    - segment the sequence in various segmentation scheme, and then pad the sequences
     
     Returns:
         seg_tokens: (n_segs, max_seq_len)
     """
-
     midi = MidiFile(path)
-    tokens = tokenizer(midi)[0] # (l, )
+    if cfg.segmentation.seg_type == "fix_time":
+        """For the fix_time segmentation, we get different segments in midi and then tokenize them"""
+        seg_tokens, i = [], 0
+        while True:
+            _midi = copy.deepcopy(midi)
+            _midi.instruments[0].notes = [note for note in midi.instruments[0].notes 
+                                        if (midi.get_tick_to_time_mapping()[note.start] < (i+1)*cfg.segmentation.seg_time 
+                                            and (midi.get_tick_to_time_mapping()[note.start]) > (i)*cfg.segmentation.seg_time )]
+            if not _midi.instruments[0].notes:
+                break
+            print(len(_midi.instruments[0].notes))
+            seg_tokens.append(tokenizer(_midi)[0][:cfg.sequence.max_seq_len])
+            i += 1
+    else:
+        tokens = tokenizer(midi)[0] # (l, )
+        seg_tokens = clip_segs(tokens, cfg)
 
-    seg_tokens = clip_and_pad(tokens, cfg)
-
-    assert(seg_tokens.shape[1] == cfg.sequence.seq_len)
+    seg_tokens = pad_segs(seg_tokens, cfg)
+    assert(seg_tokens.shape[1] == cfg.sequence.max_seq_len)
     return seg_tokens # (s l)
 
 
@@ -87,16 +102,26 @@ def musicxml_to_sequence(path, tokenizer, cfg):
     import warnings
     warnings.filterwarnings("ignore") # mute partitura warnings
 
-    # midi = MidiFile(path)
     try:
         score = pt.load_musicxml(path)
-    except:
+    except Exception as e:
+        print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
-    tokens = tokenizer.track_to_tokens(score) # (l, )
+    
+    if cfg.segmentation.seg_type == "fix_time":
+        """For the fix_time segmentation, we get different segments in score and then tokenize them"""
+        seg_tokens, i = [], 0
+        for i in range(int(score.note_array()['onset_beat'].max() / cfg.segmentation.seg_beat) + 1):
+            tokens = tokenizer.track_to_tokens(score, start_end_beat=(i*cfg.segmentation.seg_beat, (i+1)*cfg.segmentation.seg_beat))
+            seg_tokens.append(tokens[:cfg.sequence.max_seq_len])
+            print(len(tokens))
+    else:
+        tokens = tokenizer.track_to_tokens(score)
+        seg_tokens = clip_segs(tokens, cfg)    
 
-    seg_tokens = clip_and_pad(tokens, cfg)
+    seg_tokens = pad_segs(seg_tokens, cfg)
 
-    assert(seg_tokens.shape[1] == cfg.sequence.seq_len)
+    assert(seg_tokens.shape[1] == cfg.sequence.max_seq_len)
     return seg_tokens # (s l)
 
 
@@ -127,7 +152,7 @@ def batch_to_sequence(batch, cfg, device):
             seg_sequences = kern_to_sequence(path, tokenizer, cfg)
         batch_sequence.append(seg_sequences)
         batch_labels.append(l)
-
+    
     batch_sequence, batch_labels = utils.pad_batch(b, cfg, device, batch_sequence, batch_labels)
     batch_sequence = torch.tensor(np.array(batch_sequence), device=device, dtype=torch.float32) 
     return batch_sequence, batch_labels

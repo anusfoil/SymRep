@@ -6,6 +6,9 @@ experiment:
   epoch: 300
   batch_size: 2
   lr: 1e-5
+  es_patience: 25     # early stopping patience
+  es_threshold: 0.01  # early stopping threshold 
+  
   restore_training: False
   device: [4]
   continue_training: False
@@ -14,21 +17,26 @@ experiment:
 
   feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
 
-  n_segs: null   # if null, will use varied number of segments, determined by piece length and rep parameters
-  dataset: ATEPP  # ASAP or ATEPP
-  task: performer_id  # composer_id, performer_id
-  input_format: perfmidi  # perfmidi, musicxml, kern
-  symrep: graph # matrix, sequence, graph
+  seg_time: 
+  dataset: ASAP  # ASAP or ATEPP
+  task: composer_id  # composer_id, performer_id
+  input_format: musicxml  # perfmidi, musicxml, kern
+  symrep: sequence # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
+  test_split_size: 0.2
 
+segmentation:    # determine how the entire piece is segmented into local clips
+  seg_type: fix_time  # fix_num, fix_size, fix_time
+  seg_num: 4   # number of segments if seg_type==fix_nums
+  seg_graph_size: 300 # The V size of subgraph to sample if seg_type==fix_size.
+  seg_time: 60 # in seconds if seg_type==fix_time. 
+  seg_beat: 120 # in beats if seg_type==fix_time
 
 # Representation
 matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
   n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
-  fix_seg_sec: 60 # n
-  fix_seg_beats: 120 #
 
 sequence:
   mid_encoding: MIDILike # MIDILike, REMI
@@ -36,13 +44,12 @@ sequence:
   pr_end: 109
   beat_res: 8  # 
   nb_velocities: 32
-  seq_len: 1600 # max length ATEPP: 20000, ASAP: 18000
+  max_seq_len: 1600 # max length ATEPP: 20000, ASAP: 18000
   BPE: False # not implemented
 
 graph:
   basic_edges: ['onset', 'consecutive', 'sustain', 'silence']
   mid_window: 0.05 # window for determine whether notes are same onset, consecutive and sustain
-  subgraph_size: 300 # The V size of subgraph to sample. active if cfg.experiment.n_segs == null. 
   save_dir: "/homes/hz009/Research/SymRep/assets/${experiment.dataset}/${experiment.input_format}"
 
 # DATASET 

@@ -159,9 +159,9 @@ def perfmidi_to_graph(path, cfg):
         Graph: dgl.DGLGraph
     """
 
-    res = load_graph(path, cfg)
-    if type(res) == np.ndarray: 
-        return res[0]
+    # res = load_graph(path, cfg)
+    # if type(res) == np.ndarray: 
+    #     return res[0]
 
     perf_data = pretty_midi.PrettyMIDI(path)
 
@@ -220,33 +220,41 @@ def perfmidi_to_graph(path, cfg):
     
     # TODO: add level 1 features. pedal and velocity goes into bins, and think about onset values
 
+    """add timepoint features (level -1)"""
+    perfmidi_hg.ndata['feat_-1'] = torch.tensor(note_events['start']).float()
+
     save_graph(path, perfmidi_hg, cfg)
     return perfmidi_hg # (s, )
 
 
-def musicxml_to_graph(path, cfg):
-
-    res = load_graph(path, cfg)
-    if type(res) == np.ndarray: 
-        return res[0]
-
+def load_musicxml(path):
     import warnings
     warnings.filterwarnings("ignore")  # mute partitura warnings
 
+    score_data = pt.load_musicxml(path, force_note_ids=True)
+    note_array = pt.utils.music.ensure_notearray(
+        score_data,
+        include_pitch_spelling=True, # adds 3 fields: step, alter, octave
+        include_key_signature=True, # adds 2 fields: ks_fifths, ks_mode
+        include_time_signature=True, # adds 2 fields: ts_beats, ts_beat_type
+        # include_metrical_position=True, # adds 3 fields: is_downbeat, rel_onset_div, tot_measure_div
+        include_grace_notes=True # adds 2 fields: is_grace, grace_type
+    )
+    return score_data, note_array
+
+
+def musicxml_to_graph(path, cfg):
+
+    # res = load_graph(path, cfg)
+    # if type(res) == np.ndarray: 
+    #     return res[0]
+    
     try:  # some parsing error....
-        score_data = pt.load_musicxml(path, force_note_ids=True)
-        note_array = pt.utils.music.ensure_notearray(
-            score_data,
-            include_pitch_spelling=True, # adds 3 fields: step, alter, octave
-            include_key_signature=True, # adds 2 fields: ks_fifths, ks_mode
-            include_time_signature=True, # adds 2 fields: ts_beats, ts_beat_type
-            # include_metrical_position=True, # adds 3 fields: is_downbeat, rel_onset_div, tot_measure_div
-            include_grace_notes=True # adds 2 fields: is_grace, grace_type
-        )
+        score_data, note_array = load_musicxml(path)
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
-    
+
     # Get edges from note array
     measures = np.array([[m.start.t, m.end.t] for m in score_data[0].measures])
     edges, edge_types = edges_from_note_array(note_array, measures)
@@ -259,6 +267,8 @@ def musicxml_to_graph(path, cfg):
     hg = dgl.heterograph(graph_dict)
 
     # Add node features
+    hg.ndata['feat_-1'] = torch.tensor(note_array['onset_beat'].copy())
+
     feat_0, feat_1 = feature_extraction_score(note_array, score=score_data, include_meta=cfg.experiment.feat_level)
     hg.ndata['feat_0'] = torch.tensor(feat_0).float()
     if cfg.experiment.feat_level:
@@ -269,23 +279,31 @@ def musicxml_to_graph(path, cfg):
 
 
 def get_subgraphs(graph, cfg):
-    """ split the graph into segment subgraphs with fixed or flexible number of n_segs
+    """ split the graph into segment subgraphs 
     Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched)
 
     Return:
         seg_subgraphs (list of dgl.DGLHeteroGraph)
     """
 
-    """choose the number of segments to clip"""
-    if cfg.experiment.n_segs: # fixed
-        n_segs = cfg.experiment.n_segs
-        l = int(graph.num_nodes() / cfg.experiment.n_segs)
-    else: # flexible
-        n_segs = int(graph.num_nodes() / cfg.graph.subgraph_size) + 1
-        l = cfg.graph.subgraph_size
+    if cfg.segmentation.seg_type == "fix_time":
+        window = cfg.segmentation.seg_time if cfg.experiment.input_format == "perfmidi" else cfg.segmentation.seg_beat
+        nodes_onset_times = graph.ndata['feat_-1']  / window
+        bins = np.arange(np.ceil(nodes_onset_times.max()), dtype=int)
+        inds = np.digitize(nodes_onset_times, bins)
+        seg_subgraphs = [dgl.node_subgraph(graph, np.where(inds==(i+1))[0]) for i in bins]
 
-    seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
-    
+    else:
+        if cfg.segmentation.seg_type == "fix_num": 
+            n_segs = cfg.experiment.n_segs
+        elif cfg.segmentation.seg_type == "fix_size":
+            n_segs = int(graph.num_nodes() / cfg.graph.subgraph_size) + 1
+            l = cfg.graph.subgraph_size        
+
+        seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
+        seg_subgraphs.append(dgl.node_subgraph(graph, list(range((n_segs-1)*l, graph.number_of_nodes() - (n_segs-1)*l))))
+        
+
     if cfg.experiment.feat_level == 0:
         seg_subgraphs = [
             dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges])

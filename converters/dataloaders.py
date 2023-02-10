@@ -45,7 +45,6 @@ class ASAP(Dataset):
     The task-corresponding label is encoded with the label_encoder
     """
     def __init__(self, cfg):
-        torch.manual_seed(cfg.experiment.random_seed)
         self.input_format = cfg.experiment.input_format
         self.task = cfg.experiment.task
         self.metadata = pd.read_csv(cfg.dataset.ASAP.metadata_file)
@@ -81,7 +80,6 @@ class ATEPP(Dataset):
     The task-corresponding label is encoded with the label_encoder
     """
     def __init__(self, cfg):
-        torch.manual_seed(cfg.experiment.random_seed)
         self.input_format = cfg.experiment.input_format
         self.task = cfg.experiment.task
         self.dataset_dir = cfg.dataset.ATEPP.dataset_dir
