@@ -54,7 +54,25 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
 
     feat_0, feat_1 = np.hstack((duration_feature, pc_oh, octave_oh)), None
     if include_meta and score is not None:
-        meta_features, _ = pt.musicanalysis.make_note_features(score, "all")
+        # All feature functions in partitura
+        # ['articulation_direction_feature', 'articulation_feature', 'duration_feature', 'fermata_feature',
+        # 'grace_feature', 'loudness_direction_feature', 'metrical_feature', 'metrical_strength_feature',
+        # 'onset_feature', 'ornament_feature', 'polynomial_pitch_feature', 'relative_score_position_feature',
+        # 'slur_feature', 'staff_feature', 'tempo_direction_feature', 'time_signature_feature',
+        # 'vertical_neighbor_feature']
+        meta_features, _ = pt.musicanalysis.make_note_features(
+            score,
+            ["articulation_direction_feature", "articulation_feature", "fermata_feature", 'loudness_direction_feature',
+             'metrical_feature', 'metrical_strength_feature', 'ornament_feature', 'slur_feature', 'staff_feature',
+             'tempo_direction_feature', 'time_signature_feature'])
+        # NOTE: If that create different features length for each score then use this:
+        # articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score)
+        # art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score)
+        # loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
+        # direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
+        # staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
+        # meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
+
         feat_1 = meta_features
     return feat_0, feat_1
 
@@ -262,8 +280,13 @@ def musicxml_to_graph(path, cfg):
     # Build graph dict for dgl
     graph_dict = {}
     for type_num, type_name in edge_types.items():
+
         e = edges[:, edges[2, :] == type_num]
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
+        # Pipeline for adding reverse edges on consecutive, sustain, rest, and voice edges.
+        if type_name == "onset":
+            continue
+        graph_dict[('note', type_name+"_rev", 'note')] = torch.tensor(e[1]), torch.tensor(e[0])
     hg = dgl.heterograph(graph_dict)
 
     # Add node features
