@@ -12,7 +12,6 @@ def drop_uncommon_classes(metadata, label_col, threshold=0.03):
     count['agg_percent'] = count.loc[::-1, 'count'].cumsum()[::-1] / count.sum().values
     uncommon_label = count[count['agg_percent'] < threshold].index
 
-    hook()
     return metadata[~metadata[label_col].isin(uncommon_label)]
 
 
@@ -61,37 +60,18 @@ class ASAP(Dataset):
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 
                 reserved_labels=['unknown'], unknown_index=0)
-
-        
-        """
-        Beethoven       185
-        Bach            163
-        Chopin          162
-        Liszt            67
-        Schubert         55
-        Schumann         26
-        Haydn            23
-        Mozart           10
-        Scriabin          9
-        Ravel             9
-        Prokofiev         5
-        Balakirev         4
-        Rachmaninoff      4
-        Debussy           3
-        Glinka            2
-        """
     
     def __len__(self):
         return len(self.metadata)
 
     def __getitem__(self, idx):
-        label = self.label_column[idx]
+        label = self.label_column.iloc[idx]
         label = self.label_encoder.encode(label)
 
         if self.input_format == "perfmidi":
-            return (self.dataset_dir + self.metadata['midi_performance'][idx], label)
+            return (self.dataset_dir + self.metadata['midi_performance'].iloc[idx], label)
         elif self.input_format == "musicxml":
-            return (self.dataset_dir + self.metadata['xml_score'][idx], label)
+            return (self.dataset_dir + self.metadata['xml_score'].iloc[idx], label)
         else:
             raise RuntimeError("Wrong type of input format!")
 

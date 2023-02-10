@@ -12,10 +12,12 @@ experiment:
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
+  feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
+
   n_segs: null   # if null, will use varied number of segments, determined by piece length and rep parameters
   dataset: ATEPP  # ASAP or ATEPP
-  task: composer_id  # composer_id, performer_id
-  input_format: musicxml  # perfmidi, musicxml, kern
+  task: performer_id  # composer_id, performer_id
+  input_format: perfmidi  # perfmidi, musicxml, kern
   symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
 
@@ -38,6 +40,7 @@ sequence:
   BPE: False # not implemented
 
 graph:
+  basic_edges: ['onset', 'consecutive', 'sustain', 'silence']
   mid_window: 0.05 # window for determine whether notes are same onset, consecutive and sustain
   subgraph_size: 300 # The V size of subgraph to sample. active if cfg.experiment.n_segs == null. 
   save_dir: "/homes/hz009/Research/SymRep/assets/${experiment.dataset}/${experiment.input_format}"

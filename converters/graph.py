@@ -40,22 +40,23 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
     score : partitura score object (optional)
         The partitura score object. If provided, the meta features can be extracted.
     include_meta : bool
-        Whether to include meta features.
+        Whether to include meta features. ()
 
     Returns
     -------
     features : np.array
-        The features in the shape of (num_nodes, 3). Every node has 3 features, i.e. duration (1), pitch class one hot (12), octave one hot (10).
+        level 0 features: duration (1), pitch class one hot (12), octave one hot (10).
+        level 1 features: ~60 dim
     '''
     pc_oh = get_pc_one_hot(note_array)
     octave_oh = get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
+
+    feat_0, feat_1 = np.hstack((duration_feature, pc_oh, octave_oh)), None
     if include_meta and score is not None:
         meta_features, _ = pt.musicanalysis.make_note_features(score, "all")
-        out = np.hstack((duration_feature, pc_oh, octave_oh, meta_features))
-    else:
-        out = np.hstack((duration_feature, pc_oh, octave_oh))
-    return out
+        feat_1 = meta_features
+    return feat_0, feat_1
 
 
 def edges_from_note_array(note_array, measures=None):
@@ -81,7 +82,7 @@ def edges_from_note_array(note_array, measures=None):
     edg_dst = list()
     edg_type = list()
     for i, x in enumerate(note_array):
-        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["pitch"] != x["pitch"]))[0]:
+        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["id"] != x["id"]))[0]: # bidirectional?
             edg_src.append(i)
             edg_dst.append(j)
             edg_type.append(0)
@@ -155,7 +156,7 @@ def perfmidi_to_graph(path, cfg):
 
     In the first run, save all graphs into assets/ and load in future runs.
     Returns:
-        graphs: list of dgl.DGLGraph
+        Graph: dgl.DGLGraph
     """
 
     res = load_graph(path, cfg)
@@ -176,33 +177,51 @@ def perfmidi_to_graph(path, cfg):
     note_events["sustain_value"] = note_events.apply(
         lambda row: pedal_events[pedal_events['time'] <= row['start']].iloc[0]['value'], axis=1)
 
-    perfmidi_graphs = []
-    seg_length = int(len(note_events) / cfg.experiment.n_segs)
-    for i in range(cfg.experiment.n_segs):
-        """process on each segment of note events"""
-        seg_note_events = note_events.iloc[i*seg_length : i*seg_length+seg_length]
-        seg_note_events.index = range(seg_length)
-        perfmidi_g = dgl.graph(([], []), num_nodes=seg_length)
+    edg_src, edg_dst, edg_type = [], [], []
+    for j, note in note_events.iterrows():
+        """note_event: e.g., Note(start=1.009115, end=1.066406, duration=0.057291, pitch=40, velocity=93)"""
+        
+        """onset, consecutive, and sustain neighbors, and add edges"""
+        onset_nbs = note_events[np.absolute(note_events['start'] - note['start']) < cfg.graph.mid_window]
+        consec_nbs = note_events[np.absolute(note_events['start'] - note['end']) < cfg.graph.mid_window]
+        sustain_nbs = note_events[(note_events['start'] >= note['start']) & (note_events['end'] < note['end'])]
+        if not len(consec_nbs):
+            """silence edge: """
+            silence_gap = pd.Series(note_events['start'] - note['end'])
+            silence_gap_min = silence_gap.loc[lambda x: x > 0].min()
+            silence_nbs = note_events[((silence_gap - silence_gap_min) < cfg.graph.mid_window) & (silence_gap > 0)]
+            edg_src.extend([j] * len(silence_nbs))
+            edg_dst.extend(silence_nbs.index)
+            edg_type.extend(['silence'] * len(silence_nbs))
 
-        """add node(note) features"""
-        perfmidi_g.ndata['feat'] = torch.tensor(np.array(seg_note_events)) # general features are just the 5 terms in note events, plus pedal value at the time
+        edg_src.extend([j] * len(onset_nbs) 
+                                    + [j] * len(consec_nbs)
+                                    + [j] * len(sustain_nbs))
+        edg_dst.extend(list(onset_nbs.index) 
+                                    + list(consec_nbs.index)
+                                    + list(sustain_nbs.index))
+        edg_type.extend(['onset'] * len(onset_nbs) 
+                                    + ['consecutive'] * len(consec_nbs)
+                                    + ['sustain'] * len(sustain_nbs))
 
-        for j, note in seg_note_events.iterrows():
-            """note_event: e.g., Note(start=1.009115, end=1.066406, duration=0.057291, pitch=40, velocity=93)"""
-            
-            """onset, consecutive, and sustain neighbors, and add edges"""
-            onset_nbs = seg_note_events[np.absolute(seg_note_events['start'] - note['start']) < cfg.graph.mid_window]
-            consec_nbs = seg_note_events[np.absolute(seg_note_events['start'] - note['end']) < cfg.graph.mid_window]
-            sustain_nbs = seg_note_events[(seg_note_events['start'] <= note['start']) & (seg_note_events['end'] > note['end'])]
+    edges = np.array([edg_src, edg_dst, edg_type])
+    graph_dict = {}
+    for type_name in ['onset', 'consecutive', 'sustain', 'silence']:
+        e = edges[:, edges[2, :] == type_name]
+        graph_dict[('note', type_name, 'note')] = torch.tensor(e[0].astype(int)), torch.tensor(e[1].astype(int))
 
-            perfmidi_g.add_edges(np.array([j] * len(onset_nbs)), np.array(onset_nbs.index))
-            perfmidi_g.add_edges(np.array([j] * len(consec_nbs)), np.array(consec_nbs.index))
-            perfmidi_g.add_edges(np.array([j] * len(sustain_nbs)), np.array(sustain_nbs.index))
+    graph_dict = {k: (torch.tensor(s), torch.tensor(d)) for k, (s, d) in graph_dict.items()}
+    perfmidi_hg = dgl.heterograph(graph_dict)
 
-        perfmidi_graphs.append(perfmidi_g)
+    """add node(note) features"""
+    perfmidi_hg.ndata['feat_0'] = torch.tensor(np.hstack(
+        [np.expand_dims(np.array(note_events["duration"]), 1), get_pc_one_hot(note_events), get_octave_one_hot(note_events)]
+        ) ).float()
+    
+    # TODO: add level 1 features. pedal and velocity goes into bins, and think about onset values
 
-    save_graph(path, perfmidi_graphs, cfg)
-    return perfmidi_graphs # (s, )
+    save_graph(path, perfmidi_hg, cfg)
+    return perfmidi_hg # (s, )
 
 
 def musicxml_to_graph(path, cfg):
@@ -215,7 +234,7 @@ def musicxml_to_graph(path, cfg):
     warnings.filterwarnings("ignore")  # mute partitura warnings
 
     try:  # some parsing error....
-        score_data = pt.load_musicxml(path)
+        score_data = pt.load_musicxml(path, force_note_ids=True)
         note_array = pt.utils.music.ensure_notearray(
             score_data,
             include_pitch_spelling=True, # adds 3 fields: step, alter, octave
@@ -227,18 +246,23 @@ def musicxml_to_graph(path, cfg):
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
-    measures = np.array([[m.start.t, m.end.t] for m in score_data[0].measures])
+    
     # Get edges from note array
+    measures = np.array([[m.start.t, m.end.t] for m in score_data[0].measures])
     edges, edge_types = edges_from_note_array(note_array, measures)
+
     # Build graph dict for dgl
     graph_dict = {}
     for type_num, type_name in edge_types.items():
         e = edges[:, edges[2, :] == type_num]
         graph_dict[('note', type_name, 'note')] = torch.tensor(e[0]), torch.tensor(e[1])
-    # Built HeteroGraph
     hg = dgl.heterograph(graph_dict)
+
     # Add node features
-    hg.ndata['feat'] = torch.tensor(feature_extraction_score(note_array)).float()
+    feat_0, feat_1 = feature_extraction_score(note_array, score=score_data, include_meta=cfg.experiment.feat_level)
+    hg.ndata['feat_0'] = torch.tensor(feat_0).float()
+    if cfg.experiment.feat_level:
+        hg.ndata['feat_1'] = torch.tensor(feat_1).float()
     # Save graph
     save_graph(path, hg, cfg)
     return hg
@@ -246,6 +270,8 @@ def musicxml_to_graph(path, cfg):
 
 def get_subgraphs(graph, cfg):
     """ split the graph into segment subgraphs with fixed or flexible number of n_segs
+    Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched)
+
     Return:
         seg_subgraphs (list of dgl.DGLHeteroGraph)
     """
@@ -259,6 +285,12 @@ def get_subgraphs(graph, cfg):
         l = cfg.graph.subgraph_size
 
     seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
+    
+    if cfg.experiment.feat_level == 0:
+        seg_subgraphs = [
+            dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges])
+            for sg in seg_subgraphs
+        ]
 
     return seg_subgraphs
 
