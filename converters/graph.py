@@ -54,7 +54,25 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
 
     feat_0, feat_1 = np.hstack((duration_feature, pc_oh, octave_oh)), None
     if include_meta and score is not None:
-        meta_features, _ = pt.musicanalysis.make_note_features(score, "all")
+        # All feature functions in partitura
+        # ['articulation_direction_feature', 'articulation_feature', 'duration_feature', 'fermata_feature',
+        # 'grace_feature', 'loudness_direction_feature', 'metrical_feature', 'metrical_strength_feature',
+        # 'onset_feature', 'ornament_feature', 'polynomial_pitch_feature', 'relative_score_position_feature',
+        # 'slur_feature', 'staff_feature', 'tempo_direction_feature', 'time_signature_feature',
+        # 'vertical_neighbor_feature']
+        meta_features, _ = pt.musicanalysis.make_note_features(
+            score,
+            ["articulation_direction_feature", "articulation_feature", "fermata_feature", 'loudness_direction_feature',
+             'metrical_feature', 'metrical_strength_feature', 'ornament_feature', 'slur_feature', 'staff_feature',
+             'tempo_direction_feature', 'time_signature_feature'])
+        # NOTE: If that create different features length for each score then use this:
+        # articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score)
+        # art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score)
+        # loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
+        # direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
+        # staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
+        # meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
+
         feat_1 = meta_features
     return feat_0, feat_1
 
