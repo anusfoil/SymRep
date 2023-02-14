@@ -3,32 +3,31 @@
 experiment:
   random_seed: 13
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
-  epoch: 300
-  batch_size: 2
-  lr: 1e-5
-  es_patience: 25     # early stopping patience
-  es_threshold: 0.01  # early stopping threshold 
+  epoch: 500
+  batch_size: 18
+  lr: 1e-3
+  es_patience: 500     # early stopping patience
+  es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [4]
+  device: [7]
   continue_training: False
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
 
-  seg_time: 
-  dataset: ASAP  # ASAP or ATEPP
-  task: composer_id  # composer_id, performer_id
-  input_format: musicxml  # perfmidi, musicxml, kern
-  symrep: sequence # matrix, sequence, graph
+  dataset: ATEPP  # ASAP or ATEPP
+  task: performer_id  # composer_id, performer_id
+  input_format: perfmidi  # perfmidi, musicxml, kern
+  symrep: matrix # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
   test_split_size: 0.2
 
 segmentation:    # determine how the entire piece is segmented into local clips
   seg_type: fix_time  # fix_num, fix_size, fix_time
   seg_num: 4   # number of segments if seg_type==fix_nums
-  seg_graph_size: 300 # The V size of subgraph to sample if seg_type==fix_size.
+  seg_size: 300 # The V size of subgraph to sample if seg_type==fix_size. Also for 
   seg_time: 60 # in seconds if seg_type==fix_time. 
   seg_beat: 120 # in beats if seg_type==fix_time
 
@@ -37,6 +36,7 @@ matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
   n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
+
 
 sequence:
   mid_encoding: MIDILike # MIDILike, REMI
@@ -48,8 +48,10 @@ sequence:
   BPE: False # not implemented
 
 graph:
-  basic_edges: ['onset', 'consecutive', 'sustain', 'silence']
-  mid_window: 0.05 # window for determine whether notes are same onset, consecutive and sustain
+  basic_edges: ['onset', 'consecutive', 'sustain', 'silence', 
+      'consecutive_rev', 'sustain_rev', 'silence_rev'
+      ]
+  mid_window: 0.03 # window for determine whether notes are same onset, consecutive and sustain
   save_dir: "/homes/hz009/Research/SymRep/assets/${experiment.dataset}/${experiment.input_format}"
 
 # DATASET 

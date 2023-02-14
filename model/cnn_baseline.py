@@ -12,10 +12,11 @@ def get_convblock(in_channel, out_channel, kernel):
 class CNN(nn.Module):
     def __init__(self, cfg):
         super().__init__()
+        self.cfg = cfg
         self.blocks = [get_convblock(i, o, k) for i, o, k in [
             [2, 16, 3],
             [16, 32, 3],
-            [32, cfg.experiment.emb_dim, (3, 5)]
+            [32, cfg.experiment.emb_dim, (5, 5)]
         ]]
         self.cnn_modules = nn.Sequential(
             *self.blocks,
@@ -27,5 +28,6 @@ class CNN(nn.Module):
         # x: (b s) c h w
         x = self.cnn_modules(x)
         # x: b (c h w) -- b 32
+        assert(x.shape[-1] == self.cfg.experiment.emb_dim)
         return x
     

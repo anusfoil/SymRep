@@ -22,7 +22,7 @@ class GNN(nn.Module):
         self.dropout = nn.Dropout(dropout)
 
         self.in_dim = in_dim
-        self.etypes=["onset", "consecutive", "sustain", "silence", "voice"]
+        self.etypes=cfg.graph.basic_edges
         if cfg.experiment.feat_level == 1:
             self.etypes.append(['voice'])
             self.in_dim += 60
@@ -46,6 +46,7 @@ class GNN(nn.Module):
         for conv in self.layers[:-1]:
             h = conv(g, h)
             h = {k: self.activation(v) for k, v in h.items()}
+            h = {k: F.normalize(v) for k, v in h.items()}
             h = {k: self.dropout(v) for k, v in h.items()}
 
         h = self.layers[-1](g, h)
@@ -59,8 +60,9 @@ class GNN(nn.Module):
         """select the subset of features to use based on the level control"""
     
         if self.cfg.experiment.feat_level == 1:
-            node_features = torch.concatenate([g.ndata['feat_0'], g.ndata['feat_1']])
+            node_features = torch.cat([g.ndata['feat_0'], g.ndata['feat_1']], dim=1)
         else:
+            # node_features = torch.cat([g.ndata['feat_0'], g.ndata['feat_-1'].unsqueeze(1)], dim=1)
             node_features = g.ndata['feat_0']
 
         return {'note': node_features}
