@@ -8,7 +8,7 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
         refill the batch with the last one in the batch
     2. for batch with variable segments length, pad the shorter data util they have the same
         number of segments.
-        - For matrix: 
+        - For matrix: also pad with all-zero matrices
         - For sequence: pad the remaining segments with 0 (a non-vocab value)
     """
 
@@ -20,9 +20,11 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
     # pad seg
     max_n_segs = max([len(data) for data in batch_data])
     if cfg.experiment.symrep != "graph":
-        batch_data = [
-            np.concatenate((data, np.zeros((max_n_segs - len(data), *data.shape[1:])) ))
-            for data in batch_data
-        ]
-
+        batch_data = [*map(lambda data: np.concatenate((data, np.zeros((max_n_segs - len(data), *data.shape[1:])) )),
+                          batch_data)]
+        # batch_data = [
+        #     np.concatenate((data, np.zeros((max_n_segs - len(data), *data.shape[1:])) ))
+        #     for data in batch_data
+        # ]
+    
     return batch_data, batch_labels

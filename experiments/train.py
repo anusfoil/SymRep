@@ -1,6 +1,6 @@
 import os, sys, random
 sys.path.extend(["../symrep", "../", "../model", "../converters"])
-import hydra
+import hydra, wandb
 from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
@@ -63,7 +63,6 @@ class LitModel(LightningModule):
             batch_n_segs = [len(data) for data in _input]
             _input = dgl.batch(np.concatenate(_input)).to(self.device)
             _seg_emb = torch.split((self.model_frontend(_input)), batch_n_segs)
-            
             _logits = rearrange([
                 self.model_backend(rearrange(seg, "s v -> 1 s v")) for seg in _seg_emb],
                 "b 1 n -> b n")
@@ -145,12 +144,16 @@ class LitDataset(LightningDataModule):
     def train_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.train_sampler,
-                            batch_size=self.cfg.experiment.batch_size)
+                            batch_size=self.cfg.experiment.batch_size,
+                            pin_memory=True,
+                            num_workers=96)
     
     def val_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.test_sampler,
-                            batch_size=self.cfg.experiment.batch_size)
+                            batch_size=self.cfg.experiment.batch_size,
+                            pin_memory=True,
+                            num_workers=96)
 
 
 @hydra.main(config_path="../conf", config_name="config")
@@ -164,28 +167,35 @@ def main(cfg: OmegaConf) -> None:
     
     os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
 
+    lit_dataset = LitDataset(cfg)
+
     # set the frontend based on the symbolic representation.
     if cfg.experiment.symrep == "matrix":
         model = cnn_baseline.CNN(cfg)
     elif cfg.experiment.symrep == "sequence":
         model = rnn_baseline.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
-        model = gnn_baseline.GNN(cfg)
+        """get the graph feature dimesion and pass them into the model"""
+        gb, _ = graph.batch_to_graph(next(iter(lit_dataset.train_dataloader())), cfg, torch.device('cuda')) 
+        in_dim = gb[0][0].ndata['feat_0'].shape[1]
+        model = gnn_baseline.GNN(cfg, in_dim=in_dim)
 
-    lit_dataset = LitDataset(cfg)
     lit_model = LitModel(
         model, 
         agg.AttentionAggregator(cfg, lit_dataset.n_classes),
         cfg)
 
+    wandb_logger = pl_loggers.WandbLogger(
+                project="symrep",
+                name=cfg.experiment.exp_name,
+            )
+    wandb_logger.watch(model, log='all')
     trainer = Trainer(
         accelerator="gpu",
         gpus=cfg.experiment.device,
         max_epochs=cfg.experiment.epoch,
-        logger=pl_loggers.WandbLogger(
-                project="symrep",
-                name=cfg.experiment.exp_name
-            ),
+        logger=wandb_logger,
+        log_every_n_steps=18,
         callbacks=[
             ModelCheckpoint(
                 monitor="val_acc",
