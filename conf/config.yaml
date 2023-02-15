@@ -10,12 +10,12 @@ experiment:
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [5]
+  device: [5, 6]
   continue_training: False
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
-  load_data: False # Weather load existing data
+  load_data: True # Weather load existing data
   feat_level: 1 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
 
   dataset: ASAP  # ASAP or ATEPP

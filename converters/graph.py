@@ -15,22 +15,6 @@ import pandas as pd
 import utils as utils
 
 
-def get_pc_one_hot(note_array):
-    """Get one-hot encoding of pitch class."""
-    one_hot = np.zeros((len(note_array), 12))
-    idx = (np.arange(len(note_array)),np.remainder(note_array["pitch"], 12))
-    one_hot[idx] = 1
-    return one_hot
-
-
-def get_octave_one_hot(note_array):
-    """Get one-hot encoding of octave."""
-    one_hot = np.zeros((len(note_array), 10))
-    idx = (np.arange(len(note_array)), np.floor_divide(note_array["pitch"], 12))
-    one_hot[idx] = 1
-    return one_hot
-
-
 def feature_extraction_score(note_array, score=None, include_meta=False):
     '''Extract features from note_array.
     Parameters
@@ -48,8 +32,8 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         level 0 features: duration (1), pitch class one hot (12), octave one hot (10).
         level 1 features: ~60 dim
     '''
-    pc_oh = get_pc_one_hot(note_array)
-    octave_oh = get_octave_one_hot(note_array)
+    pc_oh = utils.get_pc_one_hot(note_array)
+    octave_oh = utils.get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
 
     feat_0, feat_1 = np.hstack((duration_feature, pc_oh, octave_oh)), None
@@ -158,6 +142,11 @@ def load_graph(path, cfg):
 
 def save_graph(path, computed_graphs, cfg):
 
+    if not os.path.exists(cfg.graph.save_dir): # make saving dir if not exist
+        os.makedirs(cfg.graph.save_dir)
+        with open(f"{cfg.graph.save_dir}/metadata.csv", "w") as f:
+            f.write("path,save_dir\n")
+
     metadata = pd.read_csv(f"{cfg.graph.save_dir}/metadata.csv")
     N = len(metadata) 
     metadata = metadata.append({"path": path, "save_dir": f"{N}.dgl"}, ignore_index=True)
@@ -237,15 +226,14 @@ def perfmidi_to_graph(path, cfg):
     """add node(note) features"""
     perfmidi_hg.ndata['feat_0'] = torch.tensor(np.hstack(
         [np.expand_dims(np.array(note_events["start"]) % cfg.segmentation.seg_time, 1),  # the relative onset time
-        np.expand_dims(np.array(note_events["duration"]), 1), get_pc_one_hot(note_events), get_octave_one_hot(note_events)]
+        np.expand_dims(np.array(note_events["duration"]), 1), utils.get_pc_one_hot(note_events), utils.get_octave_one_hot(note_events)]
         ) ).float()
     
-    # TODO: add level 1 features. pedal and velocity normalized under 1
-    perfmidi_hg.ndata['feat_1'] = torch.tensor(np.hstack(
-        np.expand_dims(np.array(note_events["sustain_value"]) / 127., 1),
-        np.expand_dims(np.array(note_events["velocity"]) / 127., 1),
-    ))
-    hook()
+    # add level 1 features. pedal and velocity in one-hot format
+    perfmidi_hg.ndata['feat_1'] = torch.tensor(np.hstack((
+        utils.get_pedal_one_hot(note_events), utils.get_velocity_one_hot(note_events)
+    ))).float() # 16 dim
+
     """add timepoint features (level -1)"""
     perfmidi_hg.ndata['feat_-1'] = torch.tensor(note_events['start']).float()
 
@@ -360,11 +348,6 @@ def batch_to_graph(batch, cfg, device):
     b = len(batch[0])
     batch_graphs, batch_labels = [], []
 
-    if not os.path.exists(cfg.graph.save_dir): # make saving dir if not exist
-        os.makedirs(cfg.graph.save_dir)
-        with open(f"{cfg.graph.save_dir}/metadata.csv", "w") as f:
-            f.write("path,save_dir\n")
-
     for idx, (path, l) in enumerate(zip(files, labels)):
         if cfg.experiment.input_format == "perfmidi":
             graph = perfmidi_to_graph(path, cfg)
@@ -379,7 +362,6 @@ def batch_to_graph(batch, cfg, device):
         
         batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)
-    hook()
     batch_graphs, batch_labels = utils.pad_batch(b, cfg, device, batch_graphs, batch_labels)
 
     return np.array(batch_graphs), batch_labels

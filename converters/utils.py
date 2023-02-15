@@ -2,6 +2,37 @@ import numpy as np
 import torch
 import dgl
 
+def get_pc_one_hot(note_array):
+    """Get one-hot encoding of pitch class."""
+    one_hot = np.zeros((len(note_array), 12))
+    idx = (np.arange(len(note_array)),np.remainder(note_array["pitch"], 12))
+    one_hot[idx] = 1
+    return one_hot
+
+
+def get_octave_one_hot(note_array):
+    """Get one-hot encoding of octave."""
+    one_hot = np.zeros((len(note_array), 10))
+    idx = (np.arange(len(note_array)), np.floor_divide(note_array["pitch"], 12))
+    one_hot[idx] = 1
+    return one_hot
+
+
+def get_pedal_one_hot(note_events):
+    """Get one-hot encoding of sustain pedal values."""
+    one_hot = np.zeros((len(note_events), 8))
+    idx = (np.arange(len(note_events)), np.floor_divide(note_events["sustain_value"], 16).astype(int))
+    one_hot[idx] = 1
+    return one_hot
+
+def get_velocity_one_hot(note_events):
+    """Get one-hot encoding of velocity values."""
+    one_hot = np.zeros((len(note_events), 8))
+    idx = (np.arange(len(note_events)), np.floor_divide(note_events["velocity"], 16).astype(int))
+    one_hot[idx] = 1
+    return one_hot
+
+
 def pad_batch(b, cfg, device, batch_data, batch_labels):
     """padding batch: 
     1. refill value to batch size: when the processed batch lost data because of parsing error, 

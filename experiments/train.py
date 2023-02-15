@@ -17,7 +17,7 @@ from einops import rearrange, reduce, repeat
 import dgl
 from dgl.dataloading import GraphDataLoader
 from converters import dataloaders, matrix, sequence, graph
-from model import cnn_baseline, rnn_baseline, gnn_baseline, agg
+from model import agg, matrix_frontend, graph_frontend, sequence_frontend
 
 import hook
 
@@ -171,14 +171,19 @@ def main(cfg: OmegaConf) -> None:
 
     # set the frontend based on the symbolic representation.
     if cfg.experiment.symrep == "matrix":
-        model = cnn_baseline.CNN(cfg)
+        model = matrix_frontend.CNN(cfg)
     elif cfg.experiment.symrep == "sequence":
-        model = rnn_baseline.AttentionEncoder(cfg)
+        model = sequence_frontend.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
-        """get the graph feature dimesion and pass them into the model"""
-        gb, _ = graph.batch_to_graph(next(iter(lit_dataset.train_dataloader())), cfg, torch.device('cuda')) 
-        in_dim = gb[0][0].ndata['feat_0'].shape[1]
-        model = gnn_baseline.GNN(cfg, in_dim=in_dim)
+        """try getting one graph and see their input dimension to give to model"""
+        if cfg.experiment.input_format == "musicxml":
+            g = graph.musicxml_to_graph(lit_dataset.dataset[0][0], cfg)
+        else:
+            g = graph.perfmidi_to_graph(lit_dataset.dataset[0][0], cfg)
+        in_dim = g.ndata['feat_0'].shape[1] 
+        if cfg.experiment.feat_level:
+            in_dim += g.ndata['feat_1'].shape[1] 
+        model = graph_frontend.GNN(cfg, in_dim=in_dim)
 
     lit_model = LitModel(
         model, 
@@ -193,6 +198,7 @@ def main(cfg: OmegaConf) -> None:
     trainer = Trainer(
         accelerator="gpu",
         gpus=cfg.experiment.device,
+        strategy='ddp',
         max_epochs=cfg.experiment.epoch,
         logger=wandb_logger,
         log_every_n_steps=18,
