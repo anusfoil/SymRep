@@ -75,7 +75,7 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
         direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
         staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
-        meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
+        meta_features = np.hstack((articulation, art_direction, loudness, direction, staff_feature))
 
         feat_1 = meta_features
     return feat_0, feat_1
