@@ -4,23 +4,24 @@ experiment:
   random_seed: 13
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 500
-  batch_size: 18
-  lr: 1e-3
-  es_patience: 500     # early stopping patience
+  batch_size: 32
+  lr: 3e-3
+  es_patience: 50     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [7]
+  device: [5]
   continue_training: False
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
-  feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
+  load_data: False # Weather load existing data
+  feat_level: 1 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
 
-  dataset: ATEPP  # ASAP or ATEPP
-  task: performer_id  # composer_id, performer_id
+  dataset: ASAP  # ASAP or ATEPP
+  task: composer_id  # composer_id, performer_id
   input_format: perfmidi  # perfmidi, musicxml, kern
-  symrep: matrix # matrix, sequence, graph
+  symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
   test_split_size: 0.2
 
@@ -29,7 +30,7 @@ segmentation:    # determine how the entire piece is segmented into local clips
   seg_num: 4   # number of segments if seg_type==fix_nums
   seg_size: 300 # The V size of subgraph to sample if seg_type==fix_size. Also for 
   seg_time: 60 # in seconds if seg_type==fix_time. 
-  seg_beat: 120 # in beats if seg_type==fix_time
+  seg_beat: 180 # in beats if seg_type==fix_time
 
 # Representation
 matrix:

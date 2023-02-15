@@ -26,7 +26,7 @@ class CNN(nn.Module):
         
     def forward(self, x):
         # x: (b s) c h w
-        x = self.cnn_modules(x)
+        x = self.cnn_modules(x) 
         # x: b (c h w) -- b 32
         assert(x.shape[-1] == self.cfg.experiment.emb_dim)
         return x

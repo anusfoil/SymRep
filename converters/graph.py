@@ -60,18 +60,18 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         # 'onset_feature', 'ornament_feature', 'polynomial_pitch_feature', 'relative_score_position_feature',
         # 'slur_feature', 'staff_feature', 'tempo_direction_feature', 'time_signature_feature',
         # 'vertical_neighbor_feature']
-        meta_features, _ = pt.musicanalysis.make_note_features(
-            score,
-            ["articulation_direction_feature", "articulation_feature", "fermata_feature", 'loudness_direction_feature',
-             'metrical_feature', 'metrical_strength_feature', 'ornament_feature', 'slur_feature', 'staff_feature',
-             'tempo_direction_feature', 'time_signature_feature'])
+        # meta_features, _ = pt.musicanalysis.make_note_features(
+        #     score,
+        #     ["articulation_direction_feature", "articulation_feature", "fermata_feature", 'loudness_direction_feature',
+        #      'metrical_feature', 'metrical_strength_feature', 'ornament_feature', 'slur_feature', 'staff_feature',
+        #      'tempo_direction_feature', 'time_signature_feature'])
         # NOTE: If that create different features length for each score then use this:
-        # articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score)
-        # art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score)
-        # loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
-        # direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
-        # staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
-        # meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
+        articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score)
+        art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score)
+        loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
+        direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
+        staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
+        meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
 
         feat_1 = meta_features
     return feat_0, feat_1
@@ -177,9 +177,10 @@ def perfmidi_to_graph(path, cfg):
         Graph: dgl.DGLGraph
     """
 
-    res = load_graph(path, cfg)
-    if type(res) == np.ndarray: 
-        return res[0]
+    if cfg.experiment.load_data:
+        res = load_graph(path, cfg)
+        if type(res) == np.ndarray: 
+            return res[0]
 
     perf_data = pretty_midi.PrettyMIDI(path)
 
@@ -238,8 +239,13 @@ def perfmidi_to_graph(path, cfg):
         [np.expand_dims(np.array(note_events["start"]) % cfg.segmentation.seg_time, 1),  # the relative onset time
         np.expand_dims(np.array(note_events["duration"]), 1), get_pc_one_hot(note_events), get_octave_one_hot(note_events)]
         ) ).float()
-    # TODO: add level 1 features. pedal and velocity goes into bins, and think about onset values
-
+    
+    # TODO: add level 1 features. pedal and velocity normalized under 1
+    perfmidi_hg.ndata['feat_1'] = torch.tensor(np.hstack(
+        np.expand_dims(np.array(note_events["sustain_value"]) / 127., 1),
+        np.expand_dims(np.array(note_events["velocity"]) / 127., 1),
+    ))
+    hook()
     """add timepoint features (level -1)"""
     perfmidi_hg.ndata['feat_-1'] = torch.tensor(note_events['start']).float()
 
@@ -265,9 +271,10 @@ def load_musicxml(path):
 
 def musicxml_to_graph(path, cfg):
 
-    res = load_graph(path, cfg)
-    if type(res) == np.ndarray: 
-        return res[0]
+    if cfg.experiment.load_data:
+        res = load_graph(path, cfg)
+        if type(res) == np.ndarray: 
+            return res[0]
     
     try:  # some parsing error....
         score_data, note_array = load_musicxml(path)
@@ -291,13 +298,14 @@ def musicxml_to_graph(path, cfg):
         graph_dict[('note', type_name+"_rev", 'note')] = torch.tensor(e[1]), torch.tensor(e[0])
     hg = dgl.heterograph(graph_dict)
 
-    # Add node features
+    # Add node features for segmentation purpose
     hg.ndata['feat_-1'] = torch.tensor(note_array['onset_beat'].copy())
 
     feat_0, feat_1 = feature_extraction_score(note_array, score=score_data, include_meta=cfg.experiment.feat_level)
     hg.ndata['feat_0'] = torch.tensor(feat_0).float()
     if cfg.experiment.feat_level:
         hg.ndata['feat_1'] = torch.tensor(feat_1).float()
+
 
     # Save graph
     save_graph(path, hg, cfg)
@@ -371,7 +379,7 @@ def batch_to_graph(batch, cfg, device):
         
         batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)
-
+    hook()
     batch_graphs, batch_labels = utils.pad_batch(b, cfg, device, batch_graphs, batch_labels)
 
     return np.array(batch_graphs), batch_labels

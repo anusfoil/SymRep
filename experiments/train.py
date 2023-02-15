@@ -176,7 +176,7 @@ def main(cfg: OmegaConf) -> None:
         model = rnn_baseline.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
         """get the graph feature dimesion and pass them into the model"""
-        gb, _ = graph.batch_to_graph(next(iter(lit_dataset.train_dataloader())), cfg, 'cpu') 
+        gb, _ = graph.batch_to_graph(next(iter(lit_dataset.train_dataloader())), cfg, torch.device('cuda')) 
         in_dim = gb[0][0].ndata['feat_0'].shape[1]
         model = gnn_baseline.GNN(cfg, in_dim=in_dim)
 
@@ -185,8 +185,6 @@ def main(cfg: OmegaConf) -> None:
         agg.AttentionAggregator(cfg, lit_dataset.n_classes),
         cfg)
 
-    # wandb.init(project='symrep')
-    # wandb.watch(model, log='all')
     wandb_logger = pl_loggers.WandbLogger(
                 project="symrep",
                 name=cfg.experiment.exp_name,
