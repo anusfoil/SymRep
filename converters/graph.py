@@ -48,6 +48,10 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         level 0 features: duration (1), pitch class one hot (12), octave one hot (10).
         level 1 features: ~60 dim
     '''
+    # Solution for the problem of note tied in make_note_features() but it takes longer to parse each score.
+    if include_meta and isinstance(score, pt.score.Score):
+        score = pt.score.merge_parts(score.parts)
+        note_array = score.to_note_array()
     pc_oh = get_pc_one_hot(note_array)
     octave_oh = get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
