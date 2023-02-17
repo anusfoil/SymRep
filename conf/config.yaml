@@ -3,24 +3,25 @@
 experiment:
   random_seed: 13
   exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
-  epoch: 500
+  epoch: 300
   batch_size: 32
-  lr: 3e-3
+  lr: 5e-3
+  lr_gamma: 0.99
   es_patience: 50     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [5, 6]
+  device: [3, 5]
   continue_training: False
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   load_data: True # Weather load existing data
-  feat_level: 1 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
+  feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
 
   dataset: ASAP  # ASAP or ATEPP
-  task: composer_id  # composer_id, performer_id
-  input_format: perfmidi  # perfmidi, musicxml, kern
+  task: difficulty_id  # composer_id, performer_id, difficulty_id
+  input_format: musicxml  # perfmidi, musicxml, kern
   symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
   test_split_size: 0.2
@@ -59,7 +60,7 @@ graph:
 dataset:
   ASAP:
     dataset_dir: /homes/hz009/Research/Datasets/asap-dataset/
-    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.1.csv
+    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.2.csv
 
   ATEPP: 
     dataset_dir: /homes/hz009/Research/Datasets/ATEPP-1.1/

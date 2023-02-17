@@ -1,4 +1,4 @@
-import os, sys, random
+import os, sys, random, glob
 sys.path.extend(["../symrep", "../", "../model", "../converters"])
 import hydra, wandb
 from omegaconf import DictConfig, OmegaConf
@@ -10,7 +10,8 @@ from sklearn.model_selection import train_test_split
 from torchmetrics import Accuracy, AUROC, F1Score
 from pytorch_lightning import Trainer, LightningModule, LightningDataModule
 from pytorch_lightning import loggers as pl_loggers
-from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping
+from pytorch_lightning.profiler import PyTorchProfiler
+from pytorch_lightning.callbacks import ModelCheckpoint, EarlyStopping, LearningRateMonitor
 import numpy as np
 from einops import rearrange, reduce, repeat
 
@@ -24,7 +25,7 @@ import hook
 class LitModel(LightningModule):
     def __init__(self, model_frontend, model_backend, cfg):
         super(LitModel, self).__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
         self.cfg = cfg
         self.model_frontend = model_frontend
         self.model_backend = model_backend
@@ -114,10 +115,10 @@ class LitModel(LightningModule):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.experiment.lr)
         return {
             "optimizer": optimizer,
-            # "lr_scheduler": {
-            #     "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max"),
-            #     "interval": "epoch"
-            # }
+            "lr_scheduler": {
+                "scheduler": torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.cfg.experiment.lr_gamma),
+                "interval": "epoch"
+            }
         }
 
 class LitDataset(LightningDataModule):
@@ -193,6 +194,7 @@ def main(cfg: OmegaConf) -> None:
     wandb_logger = pl_loggers.WandbLogger(
                 project="symrep",
                 name=cfg.experiment.exp_name,
+                log_model="all"
             )
     wandb_logger.watch(model, log='all')
     trainer = Trainer(
@@ -201,12 +203,14 @@ def main(cfg: OmegaConf) -> None:
         strategy='ddp',
         max_epochs=cfg.experiment.epoch,
         logger=wandb_logger,
-        log_every_n_steps=18,
+        # profiler=profiler,
+        replace_sampler_ddp=False,
         callbacks=[
             ModelCheckpoint(
                 monitor="val_acc",
                 dirpath=cfg.experiment.checkpoint_dir,
-                filename='{epoch:02d}-{val_acc:.2f}'
+                filename='{epoch:02d}-{val_acc:.2f}',
+                mode='max'
             ), 
             EarlyStopping(
                 monitor="val_acc",
@@ -214,8 +218,11 @@ def main(cfg: OmegaConf) -> None:
                 patience=cfg.experiment.es_patience,  # NOTE no. val epochs, not train epochs
                 verbose=False,
                 mode="max",
-            )]
+            ),
+            LearningRateMonitor(logging_interval='epoch')
+            ]
         )
+        
     trainer.fit(lit_model, 
         datamodule=lit_dataset,
         ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.continue_training else None))

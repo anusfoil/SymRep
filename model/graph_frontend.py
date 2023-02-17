@@ -51,8 +51,8 @@ class GNN(nn.Module):
         h = self.layers[-1](g, h)
 
         g.ndata['h'] = h['note']
-        # Calculate graph representation by average readout.
-        out = dgl.mean_nodes(g, 'h')
+        # Calculate graph representation by average readout. TODO: play with this
+        out = dgl.mean_nodes(g, 'h') 
 
         return self.attn_agg(out)
     

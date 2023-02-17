@@ -32,6 +32,10 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         level 0 features: duration (1), pitch class one hot (12), octave one hot (10).
         level 1 features: ~60 dim
     '''
+    # Solution for the problem of note tied in make_note_features() but it takes longer to parse each score.
+    # if include_meta and isinstance(score, pt.score.Score):
+    #     score = pt.score.merge_parts(score.parts)
+    #     note_array = score.note_array()
     pc_oh = utils.get_pc_one_hot(note_array)
     octave_oh = utils.get_octave_one_hot(note_array)
     duration_feature = np.expand_dims(1 - np.tanh(note_array["duration_beat"] / note_array["ts_beats"]), 1)
@@ -55,7 +59,7 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
         direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
         staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
-        meta_features = np.hstack((meta_features, articulation, art_direction, loudness, direction, staff_feature))
+        meta_features = np.hstack((articulation, art_direction, loudness, direction, staff_feature))
 
         feat_1 = meta_features
     return feat_0, feat_1
@@ -246,6 +250,7 @@ def load_musicxml(path):
     warnings.filterwarnings("ignore")  # mute partitura warnings
 
     score_data = pt.load_musicxml(path, force_note_ids=True)
+    score_data = pt.score.merge_parts(score_data.parts)
     note_array = pt.utils.music.ensure_notearray(
         score_data,
         include_pitch_spelling=True, # adds 3 fields: step, alter, octave
@@ -271,7 +276,7 @@ def musicxml_to_graph(path, cfg):
         return None
 
     # Get edges from note array
-    measures = np.array([[m.start.t, m.end.t] for m in score_data[0].measures])
+    measures = np.array([[m.start.t, m.end.t] for m in score_data.measures])
     edges, edge_types = edges_from_note_array(note_array, measures)
 
     # Build graph dict for dgl
@@ -290,6 +295,7 @@ def musicxml_to_graph(path, cfg):
     hg.ndata['feat_-1'] = torch.tensor(note_array['onset_beat'].copy())
 
     feat_0, feat_1 = feature_extraction_score(note_array, score=score_data, include_meta=cfg.experiment.feat_level)
+    # print(f'score {path} has feature dimension: {feat_1.shape}')
     hg.ndata['feat_0'] = torch.tensor(feat_0).float()
     if cfg.experiment.feat_level:
         hg.ndata['feat_1'] = torch.tensor(feat_1).float()
@@ -362,6 +368,7 @@ def batch_to_graph(batch, cfg, device):
         
         batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)
+    
     batch_graphs, batch_labels = utils.pad_batch(b, cfg, device, batch_graphs, batch_labels)
 
-    return np.array(batch_graphs), batch_labels
+    return np.array(batch_graphs, dtype='object'), batch_labels

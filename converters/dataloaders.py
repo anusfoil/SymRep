@@ -11,7 +11,6 @@ def drop_uncommon_classes(metadata, label_col, threshold=0.03):
     count = metadata[label_col].value_counts().to_frame("count")
     count['agg_percent'] = count.loc[::-1, 'count'].cumsum()[::-1] / count.sum().values
     uncommon_label = count[count['agg_percent'] < threshold].index
-
     return metadata[~metadata[label_col].isin(uncommon_label)]
 
 
@@ -56,6 +55,10 @@ class ASAP(Dataset):
         elif self.task == "performer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'perfomer')
             self.label_column = self.metadata['performer']
+        elif self.task == "difficulty_id":
+            self.metadata = drop_uncommon_classes(self.metadata, 'difficulty_label')
+            self.metadata = self.metadata[~self.metadata['difficulty_label'].isna()]
+            self.label_column = self.metadata['difficulty_label']
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 
                 reserved_labels=['unknown'], unknown_index=0)
