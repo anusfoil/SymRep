@@ -140,16 +140,27 @@ def batch_to_sequence(batch, cfg, device):
 
     tokenizer = construct_tokenizer(cfg)
     for idx, (path, l) in enumerate(zip(files, labels)):
-        if cfg.experiment.input_format == "perfmidi":
-            seg_sequences = perfmidi_to_sequence(path, tokenizer, cfg)
-        elif cfg.experiment.input_format == "musicxml":
-            res = musicxml_to_sequence(path, tokenizer, cfg)
-            if type(res) == np.ndarray:
-                seg_sequences = res
-            else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                continue
-        elif cfg.experiment.input_format == "kern":
-            seg_sequences = kern_to_sequence(path, tokenizer, cfg)
+        recompute = True
+        if cfg.experiment.load_data: # load existing data
+            res = utils.load_data(path, cfg)
+            if type(res) == np.ndarray: # keep computing if not exist
+                seg_sequences =  res
+                recompute = True
+
+        if recompute:
+            if cfg.experiment.input_format == "perfmidi":
+                seg_sequences = perfmidi_to_sequence(path, tokenizer, cfg)
+            elif cfg.experiment.input_format == "musicxml":
+                res = musicxml_to_sequence(path, tokenizer, cfg)
+                if type(res) == np.ndarray:
+                    seg_sequences = res
+                else: # in case that the xml has parsing error, we skip and copy existing data at the end.
+                    continue
+            elif cfg.experiment.input_format == "kern":
+                seg_sequences = kern_to_sequence(path, tokenizer, cfg)
+
+            utils.save_data(path, seg_sequences, cfg)
+
         batch_sequence.append(seg_sequences)
         batch_labels.append(l)
     

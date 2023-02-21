@@ -1,4 +1,4 @@
-import os, sys, random, glob
+import os, sys, random, glob, argparse
 sys.path.extend(["../symrep", "../", "../model", "../converters"])
 import hydra, wandb
 from omegaconf import DictConfig, OmegaConf
@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import  DataLoader, SubsetRandomSampler, random_split
-from sklearn.model_selection import train_test_split
+from sklearn.model_selection import train_test_split, KFold, StratifiedKFold
 from torchmetrics import Accuracy, AUROC, F1Score
 from pytorch_lightning import Trainer, LightningModule, LightningDataModule
 from pytorch_lightning import loggers as pl_loggers
@@ -25,21 +25,24 @@ import hook
 class LitModel(LightningModule):
     def __init__(self, model_frontend, model_backend, cfg):
         super(LitModel, self).__init__()
-        # self.save_hyperparameters()
+        self.save_hyperparameters()
         self.cfg = cfg
         self.model_frontend = model_frontend
         self.model_backend = model_backend
         self.n_classes = model_backend.n_classes
 
-        self.train_acc = Accuracy()
-        self.val_acc = Accuracy()
+        self.train_acc = Accuracy('multiclass', num_classes=self.n_classes)
+        self.val_acc = Accuracy('multiclass', num_classes=self.n_classes)
+        self.test_acc = Accuracy('multiclass', num_classes=self.n_classes)
         self.train_loss = torch.nn.CrossEntropyLoss()
         self.val_loss = torch.nn.CrossEntropyLoss()
 
-        self.train_fscore = F1Score(num_classes=self.n_classes, average="macro")
-        self.train_auroc = AUROC(num_classes=self.n_classes, average="macro")
-        self.val_fscore = F1Score(num_classes=self.n_classes, average="macro")
-        self.val_auroc = AUROC(num_classes=self.n_classes, average="macro")
+        self.train_fscore = F1Score('multiclass', num_classes=self.n_classes, average="macro")
+        self.train_auroc = AUROC('multiclass', num_classes=self.n_classes, average="macro")
+        self.val_fscore = F1Score('multiclass', num_classes=self.n_classes, average="macro")
+        self.val_auroc = AUROC('multiclass', num_classes=self.n_classes, average="macro")
+        self.test_fscore = F1Score('multiclass', num_classes=self.n_classes, average="macro")
+        self.test_auroc = AUROC('multiclass', num_classes=self.n_classes, average="macro")
 
     def batch_to_input(self, batch):
         """convert a batch of data into with the designated representation format.
@@ -80,6 +83,12 @@ class LitModel(LightningModule):
         return _logits, _pred     
 
     def training_step(self, batch):
+
+        # if self.current_epoch == 1: # log the dataset to wandb after the first epoch of computing
+        #     data_save_dir = self.cfg.experiment.data_save_dir[28:] # remove my own root dir path
+        #     data_artifact = wandb.Artifact("processed_input", type="data")
+        #     data_artifact.add_dir(self.cfg.experiment.data_save_dir, name=data_save_dir)
+        #     self.logger.experiment.log_artifact(data_artifact)
         
         _input, _label = self.batch_to_input(batch)
         _logits, _pred = self.forward_pass(_input)
@@ -111,6 +120,22 @@ class LitModel(LightningModule):
         self.log("val_auroc", self.val_auroc, on_epoch=True, sync_dist=True)
         return loss
 
+
+    def test_step(self, batch, batch_idx):
+        
+        _input, _label = self.batch_to_input(batch)
+        _logits, _pred = self.forward_pass(_input) 
+
+        self.test_acc(_pred, _label)
+        self.test_fscore(_pred, _label)
+        self.test_auroc(_logits, _label)
+
+        self.log('test_acc', self.test_acc, prog_bar=True, sync_dist=True)
+        self.log("test_fscore", self.test_fscore, sync_dist=True)
+        self.log("test_auroc", self.test_auroc, sync_dist=True)
+        return 
+
+
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.experiment.lr)
         return {
@@ -124,8 +149,9 @@ class LitModel(LightningModule):
 class LitDataset(LightningDataModule):
     def __init__(self, cfg):
         super(LitDataset, self).__init__()
+        self.save_hyperparameters()
         self.cfg = cfg
-
+        self.batch_size = cfg.experiment.batch_size
         if cfg.experiment.dataset == "ASAP":
             dataset = dataloaders.ASAP(cfg)
         elif cfg.experiment.dataset == "ATEPP":
@@ -135,31 +161,35 @@ class LitDataset(LightningDataModule):
         label_encoder = dataset.label_encoder
         self.n_classes = label_encoder.vocab_size
 
-        train_indices, test_indices = train_test_split((range(len(dataset))), 
-                                                       test_size=cfg.experiment.test_split_size, 
-                                                       stratify=dataset.label_column,
-                                                       random_state=cfg.experiment.random_seed) 
+        kf = StratifiedKFold(n_splits=8, shuffle=True, random_state=cfg.experiment.random_seed)
+        folds_generator = kf.split(X=range(len(dataset)), y=dataset.label_column)
+        folds = [next(folds_generator) for _ in range(8)]
+        train_indices, test_indices = folds[cfg.experiment.fold_idx]
+
+        # train_indices, test_indices = train_test_split((range(len(dataset))), 
+        #                                                test_size=cfg.experiment.test_split_size, 
+        #                                                stratify=dataset.label_column,
+        #                                                random_state=cfg.experiment.random_seed) 
         self.train_sampler = SubsetRandomSampler(train_indices)
         self.test_sampler = SubsetRandomSampler(test_indices)
 
     def train_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.train_sampler,
-                            batch_size=self.cfg.experiment.batch_size,
+                            batch_size=self.batch_size,
                             pin_memory=True,
                             num_workers=96)
     
     def val_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.test_sampler,
-                            batch_size=self.cfg.experiment.batch_size,
+                            batch_size=self.batch_size,
                             pin_memory=True,
                             num_workers=96)
 
 
-@hydra.main(config_path="../conf", config_name="config")
-def main(cfg: OmegaConf) -> None:
-
+def prep_run(cfg):
+    """random seed, empty cache, clean wandb logs"""
     torch.manual_seed(cfg.experiment.random_seed)
     random.seed(cfg.experiment.random_seed)
     torch.use_deterministic_algorithms(True)
@@ -168,9 +198,11 @@ def main(cfg: OmegaConf) -> None:
     
     os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
 
-    lit_dataset = LitDataset(cfg)
+    return 
 
-    # set the frontend based on the symbolic representation.
+
+def construct_model_frontend(cfg, lit_dataset):
+    """set the frontend based on the symbolic representation."""
     if cfg.experiment.symrep == "matrix":
         model = matrix_frontend.CNN(cfg)
     elif cfg.experiment.symrep == "sequence":
@@ -186,25 +218,41 @@ def main(cfg: OmegaConf) -> None:
             in_dim += g.ndata['feat_1'].shape[1] 
         model = graph_frontend.GNN(cfg, in_dim=in_dim)
 
-    lit_model = LitModel(
-        model, 
-        agg.AttentionAggregator(cfg, lit_dataset.n_classes),
-        cfg)
+    return model
 
+
+def construct_logger(cfg, model):
     wandb_logger = pl_loggers.WandbLogger(
                 project="symrep",
                 name=cfg.experiment.exp_name,
                 log_model="all"
             )
     wandb_logger.watch(model, log='all')
+    # wandb_logger.experiment.config.update(OmegaConf.to_container(cfg, resolve=True))
+    return wandb_logger
+
+
+@hydra.main(config_path="../conf", config_name="config")
+def main(cfg: OmegaConf) -> None:
+
+    prep_run(cfg) # random seed, empty cache, clean wandb logs
+
+    lit_dataset = LitDataset(cfg)
+    model_frontend = construct_model_frontend(cfg, lit_dataset)
+    lit_model = LitModel(
+        model_frontend, 
+        agg.AttentionAggregator(cfg, lit_dataset.n_classes),
+        cfg)
+    
+    wandb_logger = construct_logger(cfg, model_frontend) # wandblogger, model watch and artifact dataset
     trainer = Trainer(
         accelerator="gpu",
         gpus=cfg.experiment.device,
-        strategy='ddp',
+        # strategy='ddp',
         max_epochs=cfg.experiment.epoch,
         logger=wandb_logger,
-        # profiler=profiler,
         replace_sampler_ddp=False,
+        auto_scale_batch_size='power',
         callbacks=[
             ModelCheckpoint(
                 monitor="val_acc",
@@ -223,10 +271,28 @@ def main(cfg: OmegaConf) -> None:
             ]
         )
         
+    trainer.tune(lit_model, datamodule=lit_dataset) # get optimal batch size
     trainer.fit(lit_model, 
         datamodule=lit_dataset,
-        ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.continue_training else None))
+        ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.load_model else None))
+
+
+    if cfg.experiment.load_model:
+        artifact_dir = wandb_logger.download_artifact(artifact='huanz/symrep/model-35lc0sy2:v9')
+        wandb_logger.use_artifact(artifact='huanz/symrep/model-35lc0sy2:v9')
+    """testing"""
+    if cfg.experiment.dataset == "ASAP":
+        test_dataset = dataloaders.ASAP(cfg, split='test')
+    elif cfg.experiment.dataset == "ATEPP":
+        test_dataset = dataloaders.ATEPP(cfg, split='test')
+    trainer.test(lit_model, 
+                 ckpt_path=(artifact_dir+"/model.ckpt" if cfg.experiment.load_model else None ),
+                 dataloaders=DataLoader(test_dataset, 
+                                                batch_size=cfg.experiment.batch_size,
+                                                pin_memory=True,
+                                                num_workers=96))
 
 
 if __name__ == "__main__":
-        main()
+
+    main()

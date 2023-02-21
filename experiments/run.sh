@@ -1,0 +1,1 @@
+WANDB_MODE=disabled HYDRA_FULL_ERROR=1 python train.py --multirun experiment.fold_idx=0,1

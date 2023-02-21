@@ -11,6 +11,7 @@ import dgl.function as fn
 import dgl.data
 from dgl.dataloading import GraphDataLoader
 import pandas as pd
+import wandb
 
 import utils as utils
 
@@ -30,7 +31,7 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
     -------
     features : np.array
         level 0 features: duration (1), pitch class one hot (12), octave one hot (10).
-        level 1 features: ~60 dim
+        level 1 features: 61 dim
     '''
     # Solution for the problem of note tied in make_note_features() but it takes longer to parse each score.
     # if include_meta and isinstance(score, pt.score.Score):
@@ -54,11 +55,11 @@ def feature_extraction_score(note_array, score=None, include_meta=False):
         #      'metrical_feature', 'metrical_strength_feature', 'ornament_feature', 'slur_feature', 'staff_feature',
         #      'tempo_direction_feature', 'time_signature_feature'])
         # NOTE: If that create different features length for each score then use this:
-        articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score)
-        art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score)
-        loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score)
-        direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score)
-        staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score)
+        articulation, _ = pt.musicanalysis.note_features.articulation_feature(note_array, score, include_empty_features=True)
+        art_direction, _ = pt.musicanalysis.note_features.articulation_direction_feature(note_array, score, include_empty_features=True)
+        loudness, _ = pt.musicanalysis.note_features.loudness_direction_feature(note_array, score, include_empty_features=True)
+        direction, _ = pt.musicanalysis.note_features.tempo_direction_feature(note_array, score, include_empty_features=True)
+        staff_feature, _ = pt.musicanalysis.note_features.staff_feature(note_array, score, include_empty_features=True)
         meta_features = np.hstack((articulation, art_direction, loudness, direction, staff_feature))
 
         feat_1 = meta_features
@@ -88,7 +89,7 @@ def edges_from_note_array(note_array, measures=None):
     edg_dst = list()
     edg_type = list()
     for i, x in enumerate(note_array):
-        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["id"] != x["id"]))[0]: # bidirectional?
+        for j in np.where((note_array["onset_div"] == x["onset_div"]) & (note_array["id"] != x["id"]))[0]:
             edg_src.append(i)
             edg_dst.append(j)
             edg_type.append(0)
@@ -170,11 +171,6 @@ def perfmidi_to_graph(path, cfg):
         Graph: dgl.DGLGraph
     """
 
-    if cfg.experiment.load_data:
-        res = load_graph(path, cfg)
-        if type(res) == np.ndarray: 
-            return res[0]
-
     perf_data = pretty_midi.PrettyMIDI(path)
 
     note_events = perf_data.instruments[0].notes
@@ -241,7 +237,6 @@ def perfmidi_to_graph(path, cfg):
     """add timepoint features (level -1)"""
     perfmidi_hg.ndata['feat_-1'] = torch.tensor(note_events['start']).float()
 
-    save_graph(path, perfmidi_hg, cfg)
     return perfmidi_hg # (s, )
 
 
@@ -263,14 +258,11 @@ def load_musicxml(path):
 
 
 def musicxml_to_graph(path, cfg):
-
-    if cfg.experiment.load_data:
-        res = load_graph(path, cfg)
-        if type(res) == np.ndarray: 
-            return res[0]
     
     try:  # some parsing error....
         score_data, note_array = load_musicxml(path)
+        if len(note_array) == 0:
+            return None
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
@@ -300,9 +292,6 @@ def musicxml_to_graph(path, cfg):
     if cfg.experiment.feat_level:
         hg.ndata['feat_1'] = torch.tensor(feat_1).float()
 
-
-    # Save graph
-    save_graph(path, hg, cfg)
     return hg
 
 
@@ -350,21 +339,33 @@ def batch_to_graph(batch, cfg, device):
         batch_graphs: 
         batch_labels: (b, )
     """
+    
     files, labels = batch
     b = len(batch[0])
     batch_graphs, batch_labels = [], []
 
     for idx, (path, l) in enumerate(zip(files, labels)):
-        if cfg.experiment.input_format == "perfmidi":
-            graph = perfmidi_to_graph(path, cfg)
-        elif cfg.experiment.input_format == "musicxml":
-            res = musicxml_to_graph(path, cfg)
-            if type(res) == dgl.DGLHeteroGraph:
-                graph = res
-            else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                continue
-        elif cfg.experiment.input_format == "kern":
-            graph = kern_to_graph(path, cfg)
+
+        recompute = True
+        if cfg.experiment.load_data: # load existing data
+            res = utils.load_data(path, cfg)
+            if type(res) == np.ndarray: # keep computing if not exist
+                graph = res[0]
+                recompute = False
+
+        if recompute:
+            if cfg.experiment.input_format == "perfmidi":
+                graph = perfmidi_to_graph(path, cfg)
+            elif cfg.experiment.input_format == "musicxml":
+                res = musicxml_to_graph(path, cfg)
+                if type(res) == dgl.DGLHeteroGraph:
+                    graph = res
+                else: # in case that the xml has parsing error, we skip and copy existing data at the end.
+                    continue
+            elif cfg.experiment.input_format == "kern":
+                graph = kern_to_graph(path, cfg)
+            
+            utils.save_data(path, graph, cfg)
         
         batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)

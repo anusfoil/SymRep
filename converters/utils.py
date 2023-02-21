@@ -1,4 +1,6 @@
+import os
 import numpy as np
+import pandas as pd
 import torch
 import dgl
 
@@ -31,6 +33,58 @@ def get_velocity_one_hot(note_events):
     idx = (np.arange(len(note_events)), np.floor_divide(note_events["velocity"], 16).astype(int))
     one_hot[idx] = 1
     return one_hot
+
+
+def load_data(path, cfg):
+    """generic load data function for any type of representation """
+    
+    save_dir = cfg.experiment.data_save_dir
+    if cfg.experiment.symrep in ["matrix", "sequence"]: # add further parameterized dirs for matrix and sequence
+        save_dir = f"{save_dir}/{cfg[cfg.experiment.symrep].save_dir}"
+
+    if not os.path.exists(save_dir):
+        return None
+
+    metadata = pd.read_csv(f"{save_dir}/metadata.csv")
+    res = metadata[metadata['path'] == path]
+    if len(res):
+        if cfg.experiment.symrep == "graph":
+            return np.array(dgl.load_graphs(f"{save_dir}/{res['save_dir'].iloc[0]}")[0])
+        else:
+            return np.load(f"{save_dir}/{res['save_dir'].iloc[0]}")
+
+
+def save_data(path, computed_data, cfg):
+    """generic save_data function for any type of representation
+    - write the corresponding path with the saved index in metadata.csv
+    
+    graphs: dgl 
+    matrix and sequence: numpy npy
+    """
+
+    save_dir = cfg.experiment.data_save_dir
+    if cfg.experiment.symrep in ["matrix", "sequence"]: # add further parameterized dirs for matrix and sequence
+        save_dir = f"{save_dir}/{cfg[cfg.experiment.symrep].save_dir}"
+
+    if not os.path.exists(save_dir): # make saving dir if not exist
+        os.makedirs(save_dir)
+        with open(f"{save_dir}/metadata.csv", "w") as f:
+            f.write("path,save_dir\n")
+
+    metadata = pd.read_csv(f"{save_dir}/metadata.csv")
+    if path in metadata['path']: # don't write and save if it existed
+        return
+
+    N = len(metadata) 
+    if cfg.experiment.symrep == 'graph':
+        save_path = f"{N}.dgl"
+        dgl.save_graphs(f"{save_dir}/{save_path}", computed_data)
+    else:
+        save_path = f"{N}.npy"
+        np.save(f"{save_dir}/{save_path}", computed_data)
+    
+    metadata = metadata.append({"path": path, "save_dir": save_path}, ignore_index=True)
+    metadata.to_csv(f"{save_dir}/metadata.csv", index=False)
 
 
 def pad_batch(b, cfg, device, batch_data, batch_labels):

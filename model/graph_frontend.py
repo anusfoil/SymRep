@@ -25,6 +25,7 @@ class GNN(nn.Module):
         self.etypes = cfg.graph.basic_edges
         if cfg.experiment.feat_level == 1:
             self.etypes.append('voice')
+            self.etypes.append('voice_rev')
 
         self.layers.append(dglnn.HeteroGraphConv({
             edge_type: GATConv(self.in_dim, self.hid_dim, num_heads=2)

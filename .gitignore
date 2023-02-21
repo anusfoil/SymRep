@@ -8,3 +8,5 @@ hook.py
 **/assets/*
 **/profiler.log
 **/profile/*
+**/artifacts/
+**/*.ckpt

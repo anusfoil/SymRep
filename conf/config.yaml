@@ -2,29 +2,33 @@
 
 experiment:
   random_seed: 13
-  exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
-  epoch: 300
+  fold_idx: 0  # determines the fold in sweep runs (8-fold, test_size=0.125)
+  exp_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}-fold${experiment.fold_idx}"
+  epoch: 1
   batch_size: 32
-  lr: 5e-3
+  lr: 5e-4
   lr_gamma: 0.99
   es_patience: 50     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [3, 5]
-  continue_training: False
+  device: [7]
+  load_model: False
+  artifact_dir: "'huanz/symrep/model-35lc0sy2:v9'"
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
-  load_data: True # Weather load existing data
-  feat_level: 0 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
-
   dataset: ASAP  # ASAP or ATEPP
   task: difficulty_id  # composer_id, performer_id, difficulty_id
-  input_format: musicxml  # perfmidi, musicxml, kern
-  symrep: graph # matrix, sequence, graph
-  emb_dim: 32 # frontend embedding from each segment
-  test_split_size: 0.2
+  input_format: perfmidi  # perfmidi, musicxml, kern
+  symrep: matrix # matrix, sequence, graph
+  emb_dim: 8 # frontend embedding from each segment
+  test_split_size: 0.12
+
+  data_save_dir: "/import/c4dm-datasets-ext/symrep_assets/${experiment.symrep}/${experiment.dataset}/${experiment.input_format}"
+  load_data: True # wether load existing data
+  feat_level: 1 # controls the amount of information for more standardized comparison. 0 for the basic, 1 for basic+extra 
+
 
 segmentation:    # determine how the entire piece is segmented into local clips
   seg_type: fix_time  # fix_num, fix_size, fix_time
@@ -38,7 +42,7 @@ matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
   n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
-
+  save_dir: "${segmentation.seg_type}-(${segmentation.seg_num}|${segmentation.seg_size}|${segmentation.seg_time}|${segmentation.seg_beat})-${matrix.resolution}-${experiment.feat_level}" # furthur data parameters appended after the data_save_dir path
 
 sequence:
   mid_encoding: MIDILike # MIDILike, REMI
@@ -48,19 +52,19 @@ sequence:
   nb_velocities: 32
   max_seq_len: 1600 # max length ATEPP: 20000, ASAP: 18000
   BPE: False # not implemented
+  save_dir: "${segmentation.seg_type}" # furthur data parameters appended after the data_save_dir path
 
 graph:
   basic_edges: ['onset', 'consecutive', 'sustain', 'silence', 
       'consecutive_rev', 'sustain_rev', 'silence_rev'
       ]
   mid_window: 0.03 # window for determine whether notes are same onset, consecutive and sustain
-  save_dir: "/homes/hz009/Research/SymRep/assets/${experiment.dataset}/${experiment.input_format}"
 
 # DATASET 
 dataset:
   ASAP:
     dataset_dir: /homes/hz009/Research/Datasets/asap-dataset/
-    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.2.csv
+    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.3.csv
 
   ATEPP: 
     dataset_dir: /homes/hz009/Research/Datasets/ATEPP-1.1/

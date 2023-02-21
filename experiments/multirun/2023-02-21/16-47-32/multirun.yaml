@@ -1,0 +1,192 @@
+hydra:
+  run:
+    dir: .
+  sweep:
+    dir: multirun/${now:%Y-%m-%d}/${now:%H-%M-%S}
+    subdir: ${hydra.job.num}
+  hydra_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][HYDRA] %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+    root:
+      level: INFO
+      handlers:
+      - console
+    loggers:
+      logging_example:
+        level: DEBUG
+    disable_existing_loggers: false
+  job_logging:
+    version: 1
+    formatters:
+      simple:
+        format: '[%(asctime)s][%(name)s][%(levelname)s] - %(message)s'
+    handlers:
+      console:
+        class: logging.StreamHandler
+        formatter: simple
+        stream: ext://sys.stdout
+      file:
+        class: logging.FileHandler
+        formatter: simple
+        filename: ${hydra.job.name}.log
+    root:
+      level: INFO
+      handlers:
+      - console
+      - file
+    disable_existing_loggers: false
+  sweeper:
+    _target_: hydra._internal.core_plugins.basic_sweeper.BasicSweeper
+    max_batch_size: null
+  launcher:
+    _target_: hydra._internal.core_plugins.basic_launcher.BasicLauncher
+  help:
+    app_name: ${hydra.job.name}
+    header: '${hydra.help.app_name} is powered by Hydra.
+
+      '
+    footer: 'Powered by Hydra (https://hydra.cc)
+
+      Use --hydra-help to view Hydra specific help
+
+      '
+    template: '${hydra.help.header}
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (group=option)
+
+
+      $APP_CONFIG_GROUPS
+
+
+      == Config ==
+
+      Override anything in the config (foo.bar=value)
+
+
+      $CONFIG
+
+
+      ${hydra.help.footer}
+
+      '
+  hydra_help:
+    hydra_help: ???
+    template: 'Hydra (${hydra.runtime.version})
+
+      See https://hydra.cc for more info.
+
+
+      == Flags ==
+
+      $FLAGS_HELP
+
+
+      == Configuration groups ==
+
+      Compose your configuration from those groups (For example, append hydra/job_logging=disabled
+      to command line)
+
+
+      $HYDRA_CONFIG_GROUPS
+
+
+      Use ''--cfg hydra'' to Show the Hydra config.
+
+      '
+  output_subdir: null
+  overrides:
+    hydra: []
+    task:
+    - experiment.fold_idx=0,1
+  job:
+    name: train
+    override_dirname: experiment.fold_idx=0,1
+    id: ???
+    num: ???
+    config_name: config
+    env_set: {}
+    env_copy: []
+    config:
+      override_dirname:
+        kv_sep: '='
+        item_sep: ','
+        exclude_keys: []
+  runtime:
+    version: 1.0.7
+    cwd: /homes/hz009/Research/SymRep/experiments
+  verbose: false
+experiment:
+  random_seed: 13
+  fold_idx: 0
+  exp_name: ${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}-fold${experiment.fold_idx}
+  epoch: 1
+  batch_size: 32
+  lr: 0.0005
+  lr_gamma: 0.99
+  es_patience: 50
+  es_threshold: 0.005
+  restore_training: false
+  device:
+  - 7
+  load_model: false
+  artifact_dir: '''huanz/symrep/model-35lc0sy2:v9'''
+  checkpoint_dir: checkpoints/${experiment.exp_name}
+  checkpoint_file: ${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt
+  dataset: ASAP
+  task: difficulty_id
+  input_format: perfmidi
+  symrep: matrix
+  emb_dim: 8
+  test_split_size: 0.12
+  data_save_dir: /import/c4dm-datasets-ext/symrep_assets/${experiment.symrep}/${experiment.dataset}/${experiment.input_format}
+  load_data: true
+  feat_level: 1
+segmentation:
+  seg_type: fix_time
+  seg_num: 4
+  seg_size: 300
+  seg_time: 60
+  seg_beat: 180
+matrix:
+  resolution: 800
+  bins: 131
+  n_channels: 2
+  save_dir: ${segmentation.seg_type}-(${segmentation.seg_num}|${segmentation.seg_size}|${segmentation.seg_time}|${segmentation.seg_beat})-${matrix.resolution}-${experiment.feat_level}
+sequence:
+  mid_encoding: MIDILike
+  pr_start: 21
+  pr_end: 109
+  beat_res: 8
+  nb_velocities: 32
+  max_seq_len: 1600
+  BPE: false
+  save_dir: ${segmentation.seg_type}
+graph:
+  basic_edges:
+  - onset
+  - consecutive
+  - sustain
+  - silence
+  - consecutive_rev
+  - sustain_rev
+  - silence_rev
+  mid_window: 0.03
+dataset:
+  ASAP:
+    dataset_dir: /homes/hz009/Research/Datasets/asap-dataset/
+    metadata_file: /homes/hz009/Research/Datasets/asap-dataset/metadata-v1.3.csv
+  ATEPP:
+    dataset_dir: /homes/hz009/Research/Datasets/ATEPP-1.1/
+    metadata_file: /homes/hz009/Research/Datasets/ATEPP-1.1/ATEPP-metadata-1.3.csv
+  PD:
+    dataset_dir: /homes/hz009/Research/Datasets/piano_difficulty/
+    metadata_file: /homes/hz009/Research/Datasets/piano_difficulty/labels.csv

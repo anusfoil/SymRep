@@ -1,3 +1,4 @@
+import os
 import torch
 import numpy as np
 import pretty_midi
@@ -44,6 +45,7 @@ def midi_generate_rolls(note_events, pedal_events, cfg, duration=None):
         onset_roll[bgn_frame, ped_index] = 1
 
     return onset_roll, velocity_roll
+
 
 def musicxml_generate_rolls(note_events, cfg):
 
@@ -165,7 +167,6 @@ def musicxml_to_matrix(path, cfg):
     return matrices # (s 2 h w)
 
 
-
 def batch_to_matrix(batch, cfg, device):
     """Map the batch to input piano roll matrices
 
@@ -180,16 +181,28 @@ def batch_to_matrix(batch, cfg, device):
     batch_matrix, batch_labels = [], []
 
     for idx, (path, l) in enumerate(zip(files, labels)):
-        if cfg.experiment.input_format == "perfmidi":
-            seg_matrices = perfmidi_to_matrix(path, cfg)
-        elif cfg.experiment.input_format == "musicxml":
-            res = musicxml_to_matrix(path, cfg)
-            if type(res) == torch.Tensor:
-                seg_matrices = res
-            else: # in case that the xml has parsing error, we skip and copy existing data at the end.
-                continue
-        elif cfg.experiment.input_format == "kern":
-            seg_matrices = kern_to_matrix(path, cfg)
+
+        recompute = True
+        if cfg.experiment.load_data: # load existing data
+            res = utils.load_data(path, cfg)
+            if type(res) == np.ndarray: # keep computing if not exist
+                seg_matrices =  res
+                recompute = False
+
+        if recompute:
+            if cfg.experiment.input_format == "perfmidi":
+                seg_matrices = perfmidi_to_matrix(path, cfg)
+            elif cfg.experiment.input_format == "musicxml":
+                res = musicxml_to_matrix(path, cfg)
+                if type(res) == torch.Tensor:
+                    seg_matrices = res
+                else: # in case that the xml has parsing error, we skip and copy existing data at the end.
+                    continue
+            elif cfg.experiment.input_format == "kern":
+                seg_matrices = kern_to_matrix(path, cfg)
+
+            utils.save_data(path, seg_matrices, cfg)
+        
         batch_matrix.append(seg_matrices)
         batch_labels.append(l)
 
