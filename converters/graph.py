@@ -104,6 +104,11 @@ def edges_from_note_array(note_array, measures=None):
             edg_src.append(i)
             edg_dst.append(j)
             edg_type.append(2)
+        
+        # adding self-loop
+        edg_src.extend([i] * 3)
+        edg_dst.extend([i] * 3)
+        edg_type.extend([0, 1, 2])
 
     """connect any note without consecutive edges with their nearest follower"""
     end_times = note_array["onset_div"] + note_array["duration_div"]
@@ -298,10 +303,13 @@ def musicxml_to_graph(path, cfg):
 def get_subgraphs(graph, cfg):
     """ split the graph into segment subgraphs 
     Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched)
+    Also convert to homogeneous graphs when it needs to
 
     Return:
         seg_subgraphs (list of dgl.DGLHeteroGraph)
     """
+    if cfg.graph.homo:
+        graph = dgl.to_homogeneous(graph)
 
     if cfg.segmentation.seg_type == "fix_time":
         window = cfg.segmentation.seg_time if cfg.experiment.input_format == "perfmidi" else cfg.segmentation.seg_beat

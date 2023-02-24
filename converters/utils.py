@@ -1,8 +1,10 @@
-import os
+import os, glob
+import random
 import numpy as np
 import pandas as pd
 import torch
 import dgl
+from miditok import MIDILike, REMI, CPWord, XMLREMI, XMLCPWord
 
 def get_pc_one_hot(note_array):
     """Get one-hot encoding of pitch class."""
@@ -113,3 +115,57 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
         # ]
     
     return batch_data, batch_labels
+
+
+def construct_tokenizer(cfg):
+    """construct the tokenizer for sequence representation
+        - also learns the BPE encoding 
+    """
+
+    if cfg.experiment.input_format == "perfmidi":
+        tokenizer = eval(cfg.sequence.mid_encoding)( # MidiLike or REMI or CPWord
+            range(cfg.sequence.pr_start, cfg.sequence.pr_end), 
+            {(0, 12): cfg.sequence.beat_res}, # given the bpm 120, this can only represent time gaps less than 6s
+            (cfg.sequence.nb_velocities if cfg.experiment.feat_level else 1), # if feature level is 0, then we don't include velocity information (one bin)
+            additional_tokens = {'Chord': False, 'Rest': False, 'Program': False,
+                        'Tempo': True, 
+                        'nb_tempos': 32,  # nb of tempo bins
+                        'tempo_range': (40, 250),
+                        'TimeSignature': None},  # (min, max)
+            mask=False)
+    elif cfg.experiment.input_format == "musicxml":
+        tokenizer = eval("XML"+cfg.sequence.mid_encoding)(
+            range(cfg.sequence.pr_start, cfg.sequence.pr_end), 
+            {(0, 12): cfg.sequence.beat_res}, # given the bpm 120, this can only represent time gaps less than 6s
+            cfg.sequence.nb_velocities, 
+            additional_tokens = {'Chord': False, 'Rest': False, 'Program': False,
+                        'Tempo': True, 
+                        'nb_tempos': 32,  # nb of tempo bins
+                        'tempo_range': (40, 250),
+                        'TimeSignature': None},  # (min, max)
+            mask=False,
+            feat_level=cfg.experiment.feat_level)
+        
+    # assert(len(tokenizer.vocab.event_to_token.keys()) < 500) # embeding project at most 500 value
+
+    if cfg.sequence.BPE:
+        vocab_size = sum(cfg.sequence.vocab_size) * cfg.sequence.BPE
+        tokenizer.learn_bpe(cfg.sequence.bpe_dir, vocab_size=vocab_size, out_dir=cfg.sequence.bpe_dir)
+
+    return tokenizer
+
+
+def try_save_BPE_tokens(tokenizer, tokens, cfg):
+    """save some of the tokens into JSON files for future BPE learning"""
+
+    if not os.path.exists(cfg.sequence.bpe_dir): # make saving dir if not exist
+        os.makedirs(cfg.sequence.bpe_dir)
+    n_files = len(glob.glob(cfg.sequence.bpe_dir + "/*"))
+    if (n_files > 50) or (random.random() > 0.2) or (cfg.sequence.BPE): # only save 50 token segments, and choose them randomly 
+        return
+
+    save_path = f"{cfg.sequence.bpe_dir}/{n_files}.json"
+    tokenizer.save_tokens(tokens, save_path)
+    print(f"saved BPE token as {n_files}.json")
+
+    return 

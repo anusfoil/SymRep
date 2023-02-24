@@ -2,6 +2,7 @@ import math
 import torch
 import torch.nn as nn
 from einops.layers.torch import Rearrange, Reduce
+from einops import reduce
 import model_utils as utils
 
 
@@ -29,12 +30,20 @@ class RNN(nn.Module):
         return x
         
 
+
 class AttentionEncoder(nn.Module):
-    def __init__(self, cfg, n_layers=1):
+    def __init__(self, cfg, n_layers=2):
         super().__init__()
 
         self.hid_dim = 64
-        self.emb = nn.Embedding(500, self.hid_dim, padding_idx=0) #vocabulary shouldn't be larger than 500
+        self.cfg = cfg
+        if cfg.sequence.mid_encoding == "CPWord":
+            self.emb = nn.ModuleList([
+                nn.Embedding(n_tokens, self.hid_dim, padding_idx=0) for n_tokens in cfg.sequence.vocab_size
+            ])
+        else:
+            n_tokens = (sum(cfg.sequence.vocab_size) * cfg.sequence.BPE) if cfg.sequence.BPE else 400
+            self.emb = nn.Embedding(n_tokens, self.hid_dim, padding_idx=0) 
         self.pe = PositionalEncoding(self.hid_dim)
         self.attn_layers = nn.Sequential(
             *[utils.AttentionEncodingBlock(self.hid_dim) for _ in range(n_layers)]
@@ -46,8 +55,12 @@ class AttentionEncoder(nn.Module):
         )
         
     def forward(self, x):
-        """x: (b, l)"""
-        x = self.emb(x.long())
+        """x: (b, l) or (b l 6)"""
+        if self.cfg.sequence.mid_encoding == "CPWord":
+            x = [emb(x[:, :, i].long()) for i, emb in enumerate(self.emb)]
+            x = reduce(torch.stack(x), "6 b l e -> b l e", "mean")
+        else:
+            x = self.emb(x.long())
         x = self.pe(x)
         x = self.attn_layers(x)
         x = self.blocks(x)

@@ -1,4 +1,5 @@
 import torch.nn as nn
+import torchvision.models as torchmodels
 from einops.layers.torch import Rearrange
 
 def get_convblock(in_channel, out_channel, kernel):
@@ -8,6 +9,25 @@ def get_convblock(in_channel, out_channel, kernel):
         nn.ReLU(),
         nn.MaxPool2d(kernel)
     )
+
+class Resnet(nn.Module):
+    def __init__(self, cfg):
+        super().__init__()
+        self.cfg = cfg
+        self.model = torchmodels.resnet18()
+        self.modules = nn.Sequential(
+            self.model,
+            Rearrange('b c h w -> b (c h w)')
+            )
+        
+    def forward(self, x):
+        # x: (b s) c h w
+        x = self.modules(x) 
+        hook()
+        # x: b (c h w) -- b 32
+        assert(x.shape[-1] == self.cfg.experiment.emb_dim)
+        return x
+
 
 class CNN(nn.Module):
     def __init__(self, cfg):

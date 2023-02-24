@@ -17,7 +17,7 @@ from einops import rearrange, reduce, repeat
 
 import dgl
 from dgl.dataloading import GraphDataLoader
-from converters import dataloaders, matrix, sequence, graph
+from converters import dataloaders, matrix, sequence, graph, utils
 from model import agg, matrix_frontend, graph_frontend, sequence_frontend
 
 import hook
@@ -30,6 +30,9 @@ class LitModel(LightningModule):
         self.model_frontend = model_frontend
         self.model_backend = model_backend
         self.n_classes = model_backend.n_classes
+
+        if cfg.experiment.symrep == "sequence":
+            self.tokenizer = utils.construct_tokenizer(cfg)
 
         self.train_acc = Accuracy('multiclass', num_classes=self.n_classes)
         self.val_acc = Accuracy('multiclass', num_classes=self.n_classes)
@@ -50,7 +53,7 @@ class LitModel(LightningModule):
         if self.cfg.experiment.symrep == "matrix":
             _input, _label = matrix.batch_to_matrix(batch, self.cfg, self.device)  
         elif self.cfg.experiment.symrep == "sequence":
-            _input, _label = sequence.batch_to_sequence(batch, self.cfg, self.device)  
+            _input, _label = sequence.batch_to_sequence(batch, self.cfg, self.device, self.tokenizer)  
         elif self.cfg.experiment.symrep == "graph":
             _input, _label = graph.batch_to_graph(batch, self.cfg, self.device)              
         return _input, _label
@@ -75,7 +78,10 @@ class LitModel(LightningModule):
             if self.cfg.experiment.symrep == "matrix":
                 _input = rearrange(_input, "b s c h w -> (b s) c h w") 
             elif self.cfg.experiment.symrep == "sequence":
-                _input = rearrange(_input, "b s l -> (b s) l") 
+                if self.cfg.sequence.mid_encoding == "CPWord":
+                    _input = rearrange(_input, "b s l k -> (b s) l k") #CPWord has one extra batch dimension
+                else:
+                    _input = rearrange(_input, "b s l -> (b s) l") 
             _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=n_segs) 
             _logits = self.model_backend(_seg_emb) # b n
         
@@ -149,7 +155,7 @@ class LitModel(LightningModule):
 class LitDataset(LightningDataModule):
     def __init__(self, cfg):
         super(LitDataset, self).__init__()
-        self.save_hyperparameters()
+        # self.save_hyperparameters()
         self.cfg = cfg
         self.batch_size = cfg.experiment.batch_size
         if cfg.experiment.dataset == "ASAP":
@@ -173,19 +179,20 @@ class LitDataset(LightningDataModule):
         self.train_sampler = SubsetRandomSampler(train_indices)
         self.test_sampler = SubsetRandomSampler(test_indices)
 
+
     def train_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.train_sampler,
                             batch_size=self.batch_size,
-                            pin_memory=True,
-                            num_workers=96)
+                            # pin_memory=True,
+                            num_workers=8)
     
     def val_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.test_sampler,
                             batch_size=self.batch_size,
-                            pin_memory=True,
-                            num_workers=96)
+                            # pin_memory=True,
+                            num_workers=8)
 
 
 def prep_run(cfg):
@@ -196,7 +203,7 @@ def prep_run(cfg):
 
     torch.cuda.empty_cache()
     
-    os.system("wandb sync --clean --clean-old-hours 3") # clean the wandb local outputs....
+    os.system("wandb sync --clean-force --clean-old-hours 3") # clean the wandb local outputs....
 
     return 
 
@@ -204,7 +211,8 @@ def prep_run(cfg):
 def construct_model_frontend(cfg, lit_dataset):
     """set the frontend based on the symbolic representation."""
     if cfg.experiment.symrep == "matrix":
-        model = matrix_frontend.CNN(cfg)
+        model = matrix_frontend.Resnet(cfg)
+        # model = matrix_frontend.CNN(cfg)
     elif cfg.experiment.symrep == "sequence":
         model = sequence_frontend.AttentionEncoder(cfg)
     elif cfg.experiment.symrep == "graph":
@@ -216,7 +224,8 @@ def construct_model_frontend(cfg, lit_dataset):
         in_dim = g.ndata['feat_0'].shape[1] 
         if cfg.experiment.feat_level:
             in_dim += g.ndata['feat_1'].shape[1] 
-        model = graph_frontend.GNN(cfg, in_dim=in_dim)
+        # model = graph_frontend.GNN_GAT(cfg, in_dim=in_dim)
+        model = graph_frontend.GNN_SAGE(cfg, in_dim=in_dim)
 
     return model
 
@@ -225,10 +234,11 @@ def construct_logger(cfg, model):
     wandb_logger = pl_loggers.WandbLogger(
                 project="symrep",
                 name=cfg.experiment.exp_name,
+                group=(cfg.experiment.group_name if cfg.experiment.grouped else None),
                 log_model="all"
             )
     wandb_logger.watch(model, log='all')
-    # wandb_logger.experiment.config.update(OmegaConf.to_container(cfg, resolve=True))
+    wandb_logger.experiment.config.update(OmegaConf.to_container(cfg, resolve=True))
     return wandb_logger
 
 
@@ -252,7 +262,7 @@ def main(cfg: OmegaConf) -> None:
         max_epochs=cfg.experiment.epoch,
         logger=wandb_logger,
         replace_sampler_ddp=False,
-        auto_scale_batch_size='power',
+        # auto_scale_batch_size='power',
         callbacks=[
             ModelCheckpoint(
                 monitor="val_acc",
@@ -271,7 +281,7 @@ def main(cfg: OmegaConf) -> None:
             ]
         )
         
-    trainer.tune(lit_model, datamodule=lit_dataset) # get optimal batch size
+    # trainer.tune(lit_model, datamodule=lit_dataset) # get optimal batch size
     trainer.fit(lit_model, 
         datamodule=lit_dataset,
         ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.load_model else None))
@@ -290,7 +300,7 @@ def main(cfg: OmegaConf) -> None:
                  dataloaders=DataLoader(test_dataset, 
                                                 batch_size=cfg.experiment.batch_size,
                                                 pin_memory=True,
-                                                num_workers=96))
+                                                num_workers=8))
 
 
 if __name__ == "__main__":

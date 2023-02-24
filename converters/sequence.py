@@ -5,37 +5,9 @@ import copy
 import partitura as pt
 from einops import rearrange, repeat
 import pandas as pd
-import mido
-from miditok import MIDILike, REMI, MusicXML
 from miditoolkit import MidiFile
+from einops import repeat
 import utils as utils
-
-
-def construct_tokenizer(cfg):
-
-    if cfg.experiment.input_format == "perfmidi":
-        tokenizer = eval(cfg.sequence.mid_encoding)( # MidiLike or REMI
-            range(cfg.sequence.pr_start, cfg.sequence.pr_end), 
-            {(0, 12): cfg.sequence.beat_res}, # given the bpm 120, this can only represent time gaps less than 6s
-            cfg.sequence.nb_velocities, 
-            additional_tokens = {'Chord': False, 'Rest': False, 'Program': False,
-                        'Tempo': True, 
-                        'nb_tempos': 32,  # nb of tempo bins
-                        'tempo_range': (40, 250)},  # (min, max)
-            mask=False)
-    elif cfg.experiment.input_format == "musicxml":
-        tokenizer = MusicXML(
-            range(cfg.sequence.pr_start, cfg.sequence.pr_end), 
-            {(0, 12): cfg.sequence.beat_res}, # given the bpm 120, this can only represent time gaps less than 6s
-            cfg.sequence.nb_velocities, 
-            additional_tokens = {'Chord': False, 'Rest': False, 'Program': False,
-                        'Tempo': True, 
-                        'nb_tempos': 32,  # nb of tempo bins
-                        'tempo_range': (40, 250)},  # (min, max)
-            mask=False)
-        
-    assert(len(tokenizer.vocab.event_to_token.keys()) < 500) # embeding project at most 500 value
-    return tokenizer
 
 
 def clip_segs(tokens, cfg):
@@ -62,7 +34,10 @@ def clip_segs(tokens, cfg):
 
 
 def pad_segs(seg_tokens, cfg):
-    seg_tokens = [np.pad(seg_token, (0, cfg.sequence.max_seq_len - len(seg_token)), mode="constant", constant_values=1)
+    if cfg.sequence.mid_encoding == "CPWord":
+        seg_tokens = [np.concatenate([seg_token, repeat(np.array([0] * 6), 'd -> k d', k=( cfg.sequence.max_seq_len - len(seg_token)))])
+                    for seg_token in seg_tokens]        
+    seg_tokens = [np.pad(seg_token, (0, cfg.sequence.max_seq_len - len(seg_token)), mode="constant", constant_values=0)
                  for seg_token in seg_tokens]
     return np.array(seg_tokens)
     
@@ -86,10 +61,16 @@ def perfmidi_to_sequence(path, tokenizer, cfg):
             if not _midi.instruments[0].notes:
                 break
             print(len(_midi.instruments[0].notes))
-            seg_tokens.append(tokenizer(_midi)[0][:cfg.sequence.max_seq_len])
+            tokens = tokenizer(_midi)[0]
+            utils.try_save_BPE_tokens(tokenizer, tokens, cfg)
+            if cfg.sequence.BPE:
+                tokens = tokenizer.apply_bpe(tokens)
+            seg_tokens.append(tokens[:cfg.sequence.max_seq_len])
             i += 1
     else:
         tokens = tokenizer(midi)[0] # (l, )
+        if cfg.sequence.BPE:
+            tokens = tokenizer.apply_bpe(tokens)
         seg_tokens = clip_segs(tokens, cfg)
 
     seg_tokens = pad_segs(seg_tokens, cfg)
@@ -113,10 +94,15 @@ def musicxml_to_sequence(path, tokenizer, cfg):
         seg_tokens, i = [], 0
         for i in range(int(score.note_array()['onset_beat'].max() / cfg.segmentation.seg_beat) + 1):
             tokens = tokenizer.track_to_tokens(score, start_end_beat=(i*cfg.segmentation.seg_beat, (i+1)*cfg.segmentation.seg_beat))
+            utils.try_save_BPE_tokens(tokenizer, tokens, cfg)
+            if cfg.sequence.BPE:
+                tokens = tokenizer.apply_bpe(tokens)
             seg_tokens.append(tokens[:cfg.sequence.max_seq_len])
             print(len(tokens))
     else:
         tokens = tokenizer.track_to_tokens(score)
+        if cfg.sequence.BPE:
+            tokens = tokenizer.apply_bpe(tokens)
         seg_tokens = clip_segs(tokens, cfg)    
 
     seg_tokens = pad_segs(seg_tokens, cfg)
@@ -125,7 +111,7 @@ def musicxml_to_sequence(path, tokenizer, cfg):
     return seg_tokens # (s l)
 
 
-def batch_to_sequence(batch, cfg, device):
+def batch_to_sequence(batch, cfg, device, tokenizer):
     """Map the batch to input token sequences 
 
     Args:
@@ -138,14 +124,14 @@ def batch_to_sequence(batch, cfg, device):
     b = len(batch[0])
     batch_sequence, batch_labels = [], []
 
-    tokenizer = construct_tokenizer(cfg)
     for idx, (path, l) in enumerate(zip(files, labels)):
+        print(path)
         recompute = True
         if cfg.experiment.load_data: # load existing data
             res = utils.load_data(path, cfg)
             if type(res) == np.ndarray: # keep computing if not exist
                 seg_sequences =  res
-                recompute = True
+                recompute = False
 
         if recompute:
             if cfg.experiment.input_format == "perfmidi":

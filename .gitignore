@@ -10,3 +10,4 @@ hook.py
 **/profile/*
 **/artifacts/
 **/*.ckpt
+**/multirun/

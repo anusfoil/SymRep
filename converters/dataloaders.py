@@ -2,6 +2,7 @@ import os, sys
 sys.path.extend(["../../symrep", "../../"])
 import torch
 from torch.utils.data import Dataset, DataLoader, Sampler, BatchSampler
+from sklearn.model_selection import train_test_split
 from torchnlp.encoders import LabelEncoder
 import pandas as pd
 
@@ -52,8 +53,6 @@ class ASAP(Dataset):
         if self.input_format == "musicxml": # for music xml, only get the unique entries...
             self.metadata = self.metadata.drop_duplicates('xml_score', keep='first')
 
-        # train_indices, test_indices = train_test_split((range(212)), test_size=0.15, stratify=self.metadata['difficulty_label'], random_state=13)
-
         if self.task == "composer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'composer')
             if self.input_format == 'musicxml':
@@ -65,13 +64,13 @@ class ASAP(Dataset):
             self.metadata = drop_uncommon_classes(self.metadata, 'perfomer')
             self.label_column = self.metadata['performer']
         elif self.task == "difficulty_id":
-            self.metadata = self.metadata[~self.metadata['difficulty_label'].isna()]
-            self.metadata = drop_uncommon_classes(self.metadata, 'difficulty_label')
+            self.metadata = self.metadata[~self.metadata['difficulty_henle'].isna()]
+            self.metadata = drop_uncommon_classes(self.metadata, 'difficulty_henle')
             if self.input_format == 'musicxml':
                 self.metadata = self.metadata[self.metadata['difficulty_split_xml'] == split]
             else:
                 self.metadata = self.metadata[self.metadata['difficulty_split_mid'] == split]
-            self.label_column = self.metadata['difficulty_label']
+            self.label_column = self.metadata['difficulty_henle']
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 
                 reserved_labels=['unknown'], unknown_index=0)
@@ -105,17 +104,28 @@ class ATEPP(Dataset):
         if self.input_format == "musicxml":
             # filter out the ones without score
             self.metadata = self.metadata[~self.metadata['score_path'].isna()]
+            # for music xml, only get the unique entries...
+            self.metadata = self.metadata.drop_duplicates('score_path', keep='first')
 
         if self.task == "composer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'composer')
+            if self.input_format == 'musicxml':
+                self.metadata = self.metadata[self.metadata['composer_split_xml'] == split]
+            else:
+                self.metadata = self.metadata[self.metadata['composer_split_mid'] == split]
             self.label_column = self.metadata['composer']
         elif self.task == "performer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'artist', threshold=0.1)
+            self.metadata = self.metadata[self.metadata['performer_split_mid'] == split]
             self.label_column = self.metadata['artist']
         elif self.task == "difficulty_id":
-            self.metadata = drop_uncommon_classes(self.metadata, 'difficulty_label')
-            self.metadata = self.metadata[~self.metadata['difficulty_label'].isna()]
-            self.label_column = self.metadata['difficulty_label']
+            self.metadata = drop_uncommon_classes(self.metadata, 'difficulty_henle')
+            self.metadata = self.metadata[~self.metadata['difficulty_henle'].isna()]
+            if self.input_format == 'musicxml':
+                self.metadata = self.metadata[self.metadata['difficulty_split_xml'] == split]
+            else:
+                self.metadata = self.metadata[self.metadata['difficulty_split_mid'] == split]
+            self.label_column = self.metadata['difficulty_henle']
 
         self.label_encoder = LabelEncoder(self.label_column.unique(), 
                 reserved_labels=['unknown'], unknown_index=0)
