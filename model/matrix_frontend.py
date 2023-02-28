@@ -14,16 +14,17 @@ class Resnet(nn.Module):
     def __init__(self, cfg):
         super().__init__()
         self.cfg = cfg
-        self.model = torchmodels.resnet18()
-        self.modules = nn.Sequential(
+        self.model = torchmodels.resnet18(
+            layers=cfg.matrix.res_layers,
+            num_classes=cfg.experiment.emb_dim) # the resnet blocks are hard-modified with input channel and layers. (Since I can't just pass in this)
+        self.blocks = nn.Sequential(
             self.model,
-            Rearrange('b c h w -> b (c h w)')
+            # Rearrange('b c h w -> b (c h w)') 
             )
         
     def forward(self, x):
         # x: (b s) c h w
-        x = self.modules(x) 
-        hook()
+        x = self.blocks(x) 
         # x: b (c h w) -- b 32
         assert(x.shape[-1] == self.cfg.experiment.emb_dim)
         return x

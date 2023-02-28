@@ -91,16 +91,22 @@ class GNN_SAGE(nn.Module):
             self.etypes.append('voice')
             self.etypes.append('voice_rev')
 
-        self.layers.append(dglnn.HeteroGraphConv({
-            edge_type: SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn')
-            for edge_type in self.etypes}, aggregate='sum'))
-        for i in range(n_layers - 1):
+        if cfg.graph.homo:
+            self.layers.append(SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn'))
+            for i in range(n_layers - 1):
+                self.layers.append(SAGEConv(self.hid_dim, self.hid_dim, aggregator_type='gcn'))
+            self.layers.append(SAGEConv(self.hid_dim, self.out_dim, aggregator_type='gcn')) 
+        else:
             self.layers.append(dglnn.HeteroGraphConv({
-                edge_type: SAGEConv(self.hid_dim, self.hid_dim, aggregator_type='gcn')
-            for edge_type in self.etypes}, aggregate='sum'))
-        self.layers.append(dglnn.HeteroGraphConv({
-            edge_type: SAGEConv(self.hid_dim, self.out_dim, aggregator_type='gcn')
-            for edge_type in self.etypes}, aggregate='sum'))
+                edge_type: SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn')
+                for edge_type in self.etypes}, aggregate='sum'))
+            for i in range(n_layers - 1):
+                self.layers.append(dglnn.HeteroGraphConv({
+                    edge_type: SAGEConv(self.hid_dim, self.hid_dim, aggregator_type='gcn')
+                for edge_type in self.etypes}, aggregate='sum'))
+            self.layers.append(dglnn.HeteroGraphConv({
+                edge_type: SAGEConv(self.hid_dim, self.out_dim, aggregator_type='gcn')
+                for edge_type in self.etypes}, aggregate='sum'))
 
 
     def forward(self, g):
@@ -109,13 +115,18 @@ class GNN_SAGE(nn.Module):
 
         for conv in self.layers[:-1]:
             h = conv(g, h)
-            h = {k: self.activation(v) for k, v in h.items()}
-            h = {k: F.normalize(v) for k, v in h.items()}
-            h = {k: self.dropout(v) for k, v in h.items()}
+            if self.cfg.graph.homo:
+                h = self.activation(h)
+                h = F.normalize(h) 
+                h = self.dropout(h)
+            else:
+                h = {k: self.activation(v) for k, v in h.items()}
+                h = {k: F.normalize(v) for k, v in h.items()}
+                h = {k: self.dropout(v) for k, v in h.items()}
 
         h = self.layers[-1](g, h)
 
-        g.ndata['h'] = h['note']
+        g.ndata['h'] = (h if self.cfg.graph.homo else h['note'])
         # Calculate graph representation by average readout.
         return dgl.mean_nodes(g, 'h')
     
@@ -129,4 +140,4 @@ class GNN_SAGE(nn.Module):
             # node_features = torch.cat([g.ndata['feat_0'], g.ndata['feat_-1'].unsqueeze(1)], dim=1)
             node_features = g.ndata['feat_0']
 
-        return {'note': node_features}
+        return node_features if self.cfg.graph.homo else {'note': node_features}

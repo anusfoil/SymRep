@@ -309,7 +309,17 @@ def get_subgraphs(graph, cfg):
         seg_subgraphs (list of dgl.DGLHeteroGraph)
     """
     if cfg.graph.homo:
-        graph = dgl.to_homogeneous(graph)
+        # disregard the edge types and add all of them into a new graph
+        all_src, all_dst = torch.tensor([], dtype=torch.int64), torch.tensor([], dtype=torch.int64)
+        for etype in graph.etypes:
+            src, dst = graph.edges(etype=etype)
+            all_src = torch.cat((all_src, src))
+            all_dst = torch.cat((all_dst, dst))
+        h_graph = dgl.heterograph({("note", "dummy", "note"): (all_src, all_dst)})
+        # copy over the original node features
+        for k, v in graph.ndata.items():
+            h_graph.ndata[k] = v
+        graph = h_graph
 
     if cfg.segmentation.seg_type == "fix_time":
         window = cfg.segmentation.seg_time if cfg.experiment.input_format == "perfmidi" else cfg.segmentation.seg_beat
@@ -329,7 +339,8 @@ def get_subgraphs(graph, cfg):
         seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
         seg_subgraphs.append(dgl.node_subgraph(graph, list(range((n_segs-1)*l, graph.number_of_nodes()))))
 
-    if cfg.experiment.feat_level == 0:
+    # only get the basic edge types if the features level is 0.
+    if (not cfg.graph.homo) and cfg.experiment.feat_level == 0:
         seg_subgraphs = [
             dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges])
             for sg in seg_subgraphs

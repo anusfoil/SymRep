@@ -8,22 +8,22 @@ experiment:
   group_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
   batch_size: 32
-  lr: 1e-3
+  lr: 1e-4
   lr_gamma: 0.99
   es_patience: 50     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [1]
+  device: [0]
   load_model: False
   artifact_dir: "'huanz/symrep/model-35lc0sy2:v9'"
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
   checkpoint_file: "${experiment.checkpoint_dir}/epoch=49-step=1850.ckpt"
 
   dataset: ASAP  # ASAP or ATEPP
-  task: composer_id  # composer_id, performer_id, difficulty_id
-  input_format: musicxml  # perfmidi, musicxml, kern
-  symrep: graph # matrix, sequence, graph
+  task: difficulty_id  # composer_id, performer_id, difficulty_id
+  input_format: perfmidi  # perfmidi, musicxml, kern
+  symrep: matrix # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
 
   data_save_dir: "/import/c4dm-datasets-ext/symrep_assets/${experiment.symrep}/${experiment.dataset}/${experiment.input_format}"
@@ -43,10 +43,11 @@ matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
   n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
+  res_layers: [1, 1, 1, 1] # number layers in resnet structure. [2, 2, 2, 2] is for Resnet18
   save_dir: "${segmentation.seg_type}-(${segmentation.seg_num}|${segmentation.seg_size}|${segmentation.seg_time}|${segmentation.seg_beat})-${matrix.resolution}-${experiment.feat_level}" # furthur data parameters appended after the data_save_dir path
 
 sequence:
-  mid_encoding: MIDILike # MIDILike, REMI, CPWord
+  mid_encoding: REMI # MIDILike, REMI, CPWord
   pr_start: 21 
   pr_end: 109
   beat_res: 8  # 

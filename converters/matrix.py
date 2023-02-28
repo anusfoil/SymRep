@@ -29,20 +29,22 @@ def midi_generate_rolls(note_events, pedal_events, cfg, duration=None):
 
         bgn_frame = min(int(round((note_event.start - start_delta) * frames_per_second)), frames_num-1)
         fin_frame = min(int(round((note_event.end - start_delta) * frames_per_second)), frames_num-1)
-        velocity_roll[bgn_frame : fin_frame + 1, note_event.pitch] = note_event.velocity
+        velocity_roll[bgn_frame : fin_frame + 1, note_event.pitch] = (
+            note_event.velocity if cfg.experiment.feat_level else 1)
         onset_roll[bgn_frame, note_event.pitch] = 1
 
-    for pedal_event in pedal_events:
-        """pedal_event: e.g., ControlChange(number=67, value=111, time=5.492188)"""
+    if cfg.experiment.feat_level:
+        for pedal_event in pedal_events:
+            """pedal_event: e.g., ControlChange(number=67, value=111, time=5.492188)"""
 
-        if pedal_event.number == 64: ped_index = 128
-        elif pedal_event.number == 66: ped_index = 129
-        elif pedal_event.number == 67: ped_index = 130
-        else: continue
+            if pedal_event.number == 64: ped_index = 128
+            elif pedal_event.number == 66: ped_index = 129
+            elif pedal_event.number == 67: ped_index = 130
+            else: continue
 
-        bgn_frame = min(int(round((pedal_event.time - start_delta) * frames_per_second)), frames_num-1)
-        velocity_roll[bgn_frame : , ped_index] = pedal_event.value
-        onset_roll[bgn_frame, ped_index] = 1
+            bgn_frame = min(int(round((pedal_event.time - start_delta) * frames_per_second)), frames_num-1)
+            velocity_roll[bgn_frame : , ped_index] = pedal_event.value
+            onset_roll[bgn_frame, ped_index] = 1
 
     return onset_roll, velocity_roll
 
@@ -64,8 +66,13 @@ def musicxml_generate_rolls(note_events, cfg):
 
         bgn_frame = min(int(round((note_event['onset_div'] - start_delta) * frames_per_second)), frames_num-1)
         fin_frame = min(bgn_frame + int(round((note_event['duration_div']) * frames_per_second)), frames_num-1)
-        voice_roll[bgn_frame : fin_frame + 1, note_event['pitch']] = note_event['voice']
+        voice_roll[bgn_frame : fin_frame + 1, note_event['pitch']] = (
+            note_event['voice'] if cfg.experiment.feat_level else 1)
         onset_roll[bgn_frame, note_event['pitch']] = 1
+
+    if cfg.experiment.feat_level:
+        # add the score markings feature to matrix.
+        raise NotImplementedError
 
     return onset_roll, voice_roll
 
@@ -114,7 +121,8 @@ def perfmidi_to_matrix(path, cfg):
             __onset_append(seg_onset_roll)
             __velocity_append(seg_velocity_roll)
 
-    matrices = rearrange([torch.tensor(onset_roll), torch.tensor(velocity_roll)], "c s f n -> s c f n") # stack them in channel, c=2
+    matrices = torch.tensor(np.array([onset_roll, velocity_roll]))
+    matrices = rearrange(matrices, "c s f n -> s c f n") # stack them in channel, c=2
     return matrices # (s 2 h w)
 
 
@@ -163,7 +171,8 @@ def musicxml_to_matrix(path, cfg):
                 __onset_append(seg_onset_roll)
                 __voice_append(seg_voice_roll)
 
-    matrices = rearrange([torch.tensor(onset_roll), torch.tensor(voice_roll)], "c s f n -> s c f n") # stack them in channel, c=2
+    matrices = torch.tensor(np.array([onset_roll, voice_roll]))
+    matrices = rearrange(matrices, "c s f n -> s c f n") # stack them in channel, c=2
     return matrices # (s 2 h w)
 
 
