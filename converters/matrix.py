@@ -196,6 +196,8 @@ def batch_to_matrix(batch, cfg, device):
             res = utils.load_data(path, cfg)
             if type(res) == np.ndarray: # keep computing if not exist
                 seg_matrices =  res
+                if cfg.matrix.n_channels == 1:
+                    seg_matrices = seg_matrices[:, 1:, :, :]
                 recompute = False
 
         if recompute:

@@ -224,8 +224,8 @@ def construct_model_frontend(cfg, lit_dataset):
         in_dim = g.ndata['feat_0'].shape[1] 
         if cfg.experiment.feat_level:
             in_dim += g.ndata['feat_1'].shape[1] 
-        # model = graph_frontend.GNN_GAT(cfg, in_dim=in_dim)
-        model = graph_frontend.GNN_SAGE(cfg, in_dim=in_dim)
+        model = graph_frontend.GNN_GAT(cfg, in_dim=in_dim)
+        # model = graph_frontend.GNN_SAGE(cfg, in_dim=in_dim)
 
     return model
 

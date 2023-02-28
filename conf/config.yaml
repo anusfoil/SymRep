@@ -7,14 +7,14 @@ experiment:
   grouped: 0  # the crossval runs are grouped
   group_name: "${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}"
   epoch: 300
-  batch_size: 32
-  lr: 1e-4
+  batch_size: 6
+  lr: 3e-3
   lr_gamma: 0.99
-  es_patience: 50     # early stopping patience
+  es_patience: 100     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
-  device: [0]
+  device: [1]
   load_model: False
   artifact_dir: "'huanz/symrep/model-35lc0sy2:v9'"
   checkpoint_dir: "checkpoints/${experiment.exp_name}"
@@ -23,7 +23,7 @@ experiment:
   dataset: ASAP  # ASAP or ATEPP
   task: difficulty_id  # composer_id, performer_id, difficulty_id
   input_format: perfmidi  # perfmidi, musicxml, kern
-  symrep: matrix # matrix, sequence, graph
+  symrep: graph # matrix, sequence, graph
   emb_dim: 32 # frontend embedding from each segment
 
   data_save_dir: "/import/c4dm-datasets-ext/symrep_assets/${experiment.symrep}/${experiment.dataset}/${experiment.input_format}"
@@ -42,8 +42,8 @@ segmentation:    # determine how the entire piece is segmented into local clips
 matrix:
   resolution: 800 # the width of matrix
   bins: 131 # 128 pitchs + 3 pedals
-  n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice)
-  res_layers: [1, 1, 1, 1] # number layers in resnet structure. [2, 2, 2, 2] is for Resnet18
+  n_channels: 2 # n channels of matrix. onset roll + frame roll (perfmidi: velocity, musicxml: voice) If=1 then only use the frame channel
+  res_layers: [2, 2, 2, 2] # number layers in resnet structure. [2, 2, 2, 2] is for Resnet18
   save_dir: "${segmentation.seg_type}-(${segmentation.seg_num}|${segmentation.seg_size}|${segmentation.seg_time}|${segmentation.seg_beat})-${matrix.resolution}-${experiment.feat_level}" # furthur data parameters appended after the data_save_dir path
 
 sequence:
@@ -59,10 +59,13 @@ sequence:
   bpe_dir: "${experiment.data_save_dir}/${sequence.mid_encoding}-${experiment.feat_level}"  # directory for saving JSON token files for BPE learning
 
 graph:
-  homo: 1   # convert the graph back to homogeneous
+  homo: 0   # convert the graph back to homogeneous
   basic_edges: ['onset', 'consecutive', 'sustain', 'silence', 
       'consecutive_rev', 'sustain_rev', 'silence_rev'
       ]
+  n_layers: 8
+  hid_dim: 256
+  bi_dir: False
   mid_window: 0.03 # window for determine whether notes are same onset, consecutive and sustain
 
 # DATASET 

@@ -10,12 +10,12 @@ from einops.layers.torch import Rearrange, Reduce
 from einops import reduce
 
 class GNN_GAT(nn.Module):
-    def __init__(self, cfg, in_dim=23, hid_dim=128, n_layers=1,
+    def __init__(self, cfg, in_dim=23,
                  activation=F.relu, dropout=0.2):
         super().__init__()
 
         self.cfg = cfg
-        self.hid_dim = hid_dim
+        self.hid_dim = cfg.graph.hid_dim
         self.out_dim = cfg.experiment.emb_dim
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -24,9 +24,14 @@ class GNN_GAT(nn.Module):
         self.num_head = 2
         self.in_dim = in_dim
         self.etypes = cfg.graph.basic_edges
+        if (not cfg.graph.bi_dir):
+            self.etypes = [et for et in cfg.graph.basic_edges if ("rev" not in et)]
         if cfg.experiment.feat_level == 1:
             self.etypes.append('voice')
-            self.etypes.append('voice_rev')
+            if cfg.graph.bi_dir:
+                self.etypes.append('voice_rev')
+
+        n_layers = cfg.graph.n_layers
 
         self.layers.append(dglnn.HeteroGraphConv({
             edge_type: GATConv(self.in_dim, self.hid_dim, num_heads=self.num_head)
@@ -74,12 +79,12 @@ class GNN_GAT(nn.Module):
         
 
 class GNN_SAGE(nn.Module):
-    def __init__(self, cfg, in_dim=23, hid_dim=128, n_layers=1,
+    def __init__(self, cfg, in_dim=23,
                  activation=F.relu, dropout=0.2):
         super().__init__()
 
         self.cfg = cfg
-        self.hid_dim = hid_dim
+        self.hid_dim = cfg.graph.hid_dim
         self.out_dim = cfg.experiment.emb_dim
         self.layers = nn.ModuleList()
         self.activation = activation
@@ -87,9 +92,14 @@ class GNN_SAGE(nn.Module):
 
         self.in_dim = in_dim
         self.etypes=cfg.graph.basic_edges
+        if (not cfg.graph.bi_dir):
+            self.etypes = [et for et in cfg.graph.basic_edges if ("rev" not in et)]
         if cfg.experiment.feat_level == 1:
             self.etypes.append('voice')
-            self.etypes.append('voice_rev')
+            if cfg.graph.bi_dir:
+                self.etypes.append('voice_rev')
+
+        n_layers = cfg.graph.n_layers
 
         if cfg.graph.homo:
             self.layers.append(SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn'))

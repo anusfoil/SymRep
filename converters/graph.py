@@ -302,8 +302,8 @@ def musicxml_to_graph(path, cfg):
 
 def get_subgraphs(graph, cfg):
     """ split the graph into segment subgraphs 
-    Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched)
-    Also convert to homogeneous graphs when it needs to
+    Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched). Remove reverse edges if bi_dir is false
+    Also convert to homogeneous graphs when it needs to.
 
     Return:
         seg_subgraphs (list of dgl.DGLHeteroGraph)
@@ -343,6 +343,13 @@ def get_subgraphs(graph, cfg):
     if (not cfg.graph.homo) and cfg.experiment.feat_level == 0:
         seg_subgraphs = [
             dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges])
+            for sg in seg_subgraphs
+        ]
+    
+    # only get the non-reverse edge types if bi_dir is false
+    if (not cfg.graph.homo) and (not cfg.graph.bi_dir):
+        seg_subgraphs = [
+            dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges if ("rev" not in et)])
             for sg in seg_subgraphs
         ]
 
