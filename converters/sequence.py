@@ -55,12 +55,14 @@ def perfmidi_to_sequence(path, tokenizer, cfg):
         seg_tokens, i = [], 0
         while True:
             _midi = copy.deepcopy(midi)
-            _midi.instruments[0].notes = [note for note in midi.instruments[0].notes 
-                                        if (midi.get_tick_to_time_mapping()[note.start] < (i+1)*cfg.segmentation.seg_time 
-                                            and (midi.get_tick_to_time_mapping()[note.start]) > (i)*cfg.segmentation.seg_time )]
-            if not _midi.instruments[0].notes:
+            instrument_track = _midi.instruments[0]
+            start, end = (i)*cfg.segmentation.seg_time, (i+1)*cfg.segmentation.seg_time 
+            instrument_track.notes = [note for note in instrument_track.notes 
+                                        if (midi.get_tick_to_time_mapping()[note.start] < end
+                                            and (midi.get_tick_to_time_mapping()[note.start]) > start)]
+            if not instrument_track.notes:
                 break
-            print(len(_midi.instruments[0].notes))
+            print(len(instrument_track.notes))
             tokens = tokenizer(_midi)[0]
             utils.try_save_BPE_tokens(tokenizer, tokens, cfg)
             if cfg.sequence.BPE:
@@ -125,7 +127,7 @@ def batch_to_sequence(batch, cfg, device, tokenizer):
     batch_sequence, batch_labels = [], []
 
     for idx, (path, l) in enumerate(zip(files, labels)):
-        print(path)
+        # print(path)
         recompute = True
         if cfg.experiment.load_data: # load existing data
             res = utils.load_data(path, cfg)
@@ -133,6 +135,7 @@ def batch_to_sequence(batch, cfg, device, tokenizer):
                 seg_sequences =  res
                 recompute = False
 
+        # events = tokenizer.tokens_to_events(list(seg_sequences[0]))
         if recompute:
             if cfg.experiment.input_format == "perfmidi":
                 seg_sequences = perfmidi_to_sequence(path, tokenizer, cfg)

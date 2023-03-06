@@ -35,7 +35,8 @@ class AttentionEncoder(nn.Module):
     def __init__(self, cfg, n_layers=2):
         super().__init__()
 
-        self.hid_dim = 64
+        self.hid_dim = cfg.sequence.hid_dim
+        self.num_heads = cfg.sequence.n_heads
         self.cfg = cfg
         if cfg.sequence.mid_encoding == "CPWord":
             self.emb = nn.ModuleList([
@@ -44,14 +45,14 @@ class AttentionEncoder(nn.Module):
         else:
             n_tokens = (sum(cfg.sequence.vocab_size) * cfg.sequence.BPE) if cfg.sequence.BPE else 400
             self.emb = nn.Embedding(n_tokens, self.hid_dim, padding_idx=0) 
-        self.pe = PositionalEncoding(self.hid_dim)
+        self.pe = PositionalEncoding(self.hid_dim, max_len=cfg.sequence.max_seq_len)
         self.attn_layers = nn.Sequential(
-            *[utils.AttentionEncodingBlock(self.hid_dim) for _ in range(n_layers)]
+            *[utils.AttentionEncodingBlock(self.hid_dim, num_heads=self.num_heads) for _ in range(n_layers)]
             )
 
         self.blocks = nn.Sequential(
             nn.Linear(self.hid_dim, cfg.experiment.emb_dim),
-            Reduce("b l e -> b e", "mean")
+            Reduce("b l e -> b e", "mean") # play with this!
         )
         
     def forward(self, x):
@@ -82,7 +83,7 @@ class PositionalEncoding(nn.Module):
         # Create matrix of [SeqLen, HiddenDim] representing the positional encoding for max_len inputs
         pe = torch.zeros(max_len, d_model)
         position = torch.arange(0, max_len, dtype=torch.float).unsqueeze(1)
-        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(10000.0) / d_model))
+        div_term = torch.exp(torch.arange(0, d_model, 2).float() * (-math.log(max_len) / d_model))
         pe[:, 0::2] = torch.sin(position * div_term)
         pe[:, 1::2] = torch.cos(position * div_term)
         pe = pe.unsqueeze(0)

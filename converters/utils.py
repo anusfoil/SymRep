@@ -22,6 +22,16 @@ def get_octave_one_hot(note_array):
     return one_hot
 
 
+def get_onset_one_hot(note_events):
+    """Get one-hot encoding of onset within the 60s segment"""
+    seg_time = 60
+    one_hot = np.zeros((len(note_events), seg_time))
+    onsets = np.array(note_events["start"]) % seg_time
+    idx = (np.arange(len(note_events)),np.remainder(note_events["pitch"], 12))
+    one_hot[idx] = 1
+    return one_hot
+
+
 def get_pedal_one_hot(note_events):
     """Get one-hot encoding of sustain pedal values."""
     one_hot = np.zeros((len(note_events), 8))
@@ -106,6 +116,10 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
 
     # pad seg
     max_n_segs = max([len(data) for data in batch_data])
+    if cfg.experiment.symrep == "sequence":
+        max_n_segs = min(max([len(data) for data in batch_data]), 8)
+        batch_data = [data[:max_n_segs] for data in batch_data]
+    # print(f"max_n_segs: {max_n_segs}")
     if cfg.experiment.symrep != "graph":
         batch_data = [*map(lambda data: np.concatenate((data, np.zeros((max_n_segs - len(data), *data.shape[1:])) )),
                           batch_data)]

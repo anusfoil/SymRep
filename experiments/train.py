@@ -143,7 +143,7 @@ class LitModel(LightningModule):
 
 
     def configure_optimizers(self):
-        optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.experiment.lr)
+        optimizer = torch.optim.Adam(self.parameters(), lr=self.cfg.experiment.lr, weight_decay=1e-2)
         return {
             "optimizer": optimizer,
             "lr_scheduler": {
@@ -170,19 +170,20 @@ class LitDataset(LightningDataModule):
         kf = StratifiedKFold(n_splits=8, shuffle=True, random_state=cfg.experiment.random_seed)
         folds_generator = kf.split(X=range(len(dataset)), y=dataset.label_column)
         folds = [next(folds_generator) for _ in range(8)]
-        train_indices, test_indices = folds[cfg.experiment.fold_idx]
+        self.train_indices, self.test_indices = folds[cfg.experiment.fold_idx]
 
         # train_indices, test_indices = train_test_split((range(len(dataset))), 
         #                                                test_size=cfg.experiment.test_split_size, 
         #                                                stratify=dataset.label_column,
         #                                                random_state=cfg.experiment.random_seed) 
-        self.train_sampler = SubsetRandomSampler(train_indices)
-        self.test_sampler = SubsetRandomSampler(test_indices)
+        self.train_sampler = SubsetRandomSampler(self.train_indices)
+        self.test_sampler = SubsetRandomSampler(self.test_indices)
 
 
     def train_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.train_sampler,
+                            # sampler=self.train_indices,
                             batch_size=self.batch_size,
                             # pin_memory=True,
                             num_workers=8)
@@ -190,6 +191,7 @@ class LitDataset(LightningDataModule):
     def val_dataloader(self):
         return DataLoader(self.dataset, 
                             sampler=self.test_sampler,
+                            # sampler=self.test_indices,
                             batch_size=self.batch_size,
                             # pin_memory=True,
                             num_workers=8)
@@ -224,8 +226,7 @@ def construct_model_frontend(cfg, lit_dataset):
         in_dim = g.ndata['feat_0'].shape[1] 
         if cfg.experiment.feat_level:
             in_dim += g.ndata['feat_1'].shape[1] 
-        model = graph_frontend.GNN_GAT(cfg, in_dim=in_dim)
-        # model = graph_frontend.GNN_SAGE(cfg, in_dim=in_dim)
+        model = graph_frontend.GNN(cfg, in_dim=in_dim)
 
     return model
 

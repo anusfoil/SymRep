@@ -4,8 +4,9 @@ import torch.nn.functional as F
 import dgl
 import dgl.function as fn
 import dgl.data
-from dgl.nn import GraphConv, SAGEConv, GATConv
+from dgl.nn import GraphConv, SAGEConv, GATConv, GINConv
 import dgl.nn.pytorch as dglnn
+import numpy as np
 from einops.layers.torch import Rearrange, Reduce
 from einops import reduce
 
@@ -77,8 +78,26 @@ class GNN_GAT(nn.Module):
 
         return {'note': node_features}
         
+def get_base_conv(conv_type, in_dim, out_dim, num_head=2):
+    """get the base convolution layer depending on the given conv_type """
+    
+    if conv_type == "SAGEConv":
+        return SAGEConv(in_dim, out_dim, aggregator_type='gcn')
+    if conv_type == "GATConv":
+        return GATConv(in_dim, out_dim, num_heads=num_head)
+    if conv_type == "GINConv":
+        lin = nn.Linear(in_dim, out_dim)
+        return GINConv(lin, "max")
 
-class GNN_SAGE(nn.Module):
+
+def edge_agg(edge_agg_layer, stacked_output):
+    outputs = []
+    for i in range(stacked_output.shape[1]):
+        outputs.append(edge_agg_layer[i](stacked_output[:, i, :]))
+    return reduce(torch.stack(outputs), "e n d -> n d", "mean")
+
+
+class GNN(nn.Module):
     def __init__(self, cfg, in_dim=23,
                  activation=F.relu, dropout=0.2):
         super().__init__()
@@ -101,40 +120,69 @@ class GNN_SAGE(nn.Module):
 
         n_layers = cfg.graph.n_layers
 
+        # an linear layer that aggregates the edge's outputs
+        # self.edg_agg_layer = nn.ModuleList([
+        #     nn.Sequential(
+        #         nn.Linear(self.hid_dim, self.hid_dim),
+        #         nn.BatchNorm1d(self.hid_dim),
+        #         nn.Dropout(dropout)
+        #     )
+        #     for _ in range(len(self.etypes))
+        # ])
+        # self.edg_agg_layer_end = nn.ModuleList([
+        #     nn.Sequential(
+        #         nn.Linear(self.out_dim, self.out_dim),
+        #         nn.BatchNorm1d(self.out_dim),
+        #         nn.Dropout(dropout)
+        #     )
+        #     for _ in range(len(self.etypes))
+        # ])
+        # self.edg_agg_end = nn.Sequential(
+        #     Rearrange("n e d -> n (e d)"),
+        #     nn.Linear(len(self.etypes) * self.out_dim, self.out_dim) 
+        # )
         if cfg.graph.homo:
-            self.layers.append(SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn'))
-            for i in range(n_layers - 1):
-                self.layers.append(SAGEConv(self.hid_dim, self.hid_dim, aggregator_type='gcn'))
-            self.layers.append(SAGEConv(self.hid_dim, self.out_dim, aggregator_type='gcn')) 
+            self.layers.append(get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim))
+            for _ in range(n_layers - 1):
+                self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim))
+            self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim)) 
         else:
             self.layers.append(dglnn.HeteroGraphConv({
-                edge_type: SAGEConv(self.in_dim, self.hid_dim, aggregator_type='gcn')
-                for edge_type in self.etypes}, aggregate='sum'))
-            for i in range(n_layers - 1):
+                edge_type: get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim)
+                for edge_type in self.etypes}, aggregate="max")) # do operation with aggregation 
+            for _ in range(n_layers - 1):
                 self.layers.append(dglnn.HeteroGraphConv({
-                    edge_type: SAGEConv(self.hid_dim, self.hid_dim, aggregator_type='gcn')
-                for edge_type in self.etypes}, aggregate='sum'))
+                    edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim)
+                for edge_type in self.etypes}, aggregate="max"))
             self.layers.append(dglnn.HeteroGraphConv({
-                edge_type: SAGEConv(self.hid_dim, self.out_dim, aggregator_type='gcn')
-                for edge_type in self.etypes}, aggregate='sum'))
+                edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim)
+                for edge_type in self.etypes}, aggregate="max"))
 
 
     def forward(self, g):
 
         h = self.feature_by_level(g)
 
-        for conv in self.layers[:-1]:
+        for idx, conv in enumerate(self.layers[:-1]):
+            # h_ = h
             h = conv(g, h)
             if self.cfg.graph.homo:
                 h = self.activation(h)
                 h = F.normalize(h) 
                 h = self.dropout(h)
             else:
+                # h = {k: edge_agg(self.edg_agg_layer, v) for k, v in h.items()}
+                # if idx != 0:
+                #     h = {k: v + h_[k] for k, v in h.items()} # add residual connection
                 h = {k: self.activation(v) for k, v in h.items()}
                 h = {k: F.normalize(v) for k, v in h.items()}
                 h = {k: self.dropout(v) for k, v in h.items()}
+                
+                if self.cfg.graph.conv_type == "GATConv": 
+                    h = {k: reduce(v, f"b {self.num_head} d -> b d", 'mean') for k, v in h.items()}
 
         h = self.layers[-1](g, h)
+        # h = {k: edge_agg(self.edg_agg_layer_end, v) for k, v in h.items()}
 
         g.ndata['h'] = (h if self.cfg.graph.homo else h['note'])
         # Calculate graph representation by average readout.

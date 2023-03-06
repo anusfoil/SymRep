@@ -25,7 +25,7 @@ class BaselineAggregator(nn.Module):
     
 
 class AttentionAggregator(nn.Module):
-    def __init__(self, cfg, n_classes):
+    def __init__(self, cfg, n_classes, ff_dim=512):
         super().__init__()
 
         self.n_classes = n_classes
@@ -33,9 +33,9 @@ class AttentionAggregator(nn.Module):
         self.attn_block = model_utils.AttentionEncodingBlock(cfg.experiment.emb_dim)
         self.pred_proj = nn.Sequential(
             Reduce('b s v -> b v', "mean"),
-            nn.Linear(self.emb_dim, self.emb_dim),
+            nn.Linear(self.emb_dim, ff_dim),
             nn.ReLU(),
-            nn.Linear(self.emb_dim, n_classes)
+            nn.Linear(ff_dim, n_classes)
             )
 
     def forward(self, x):

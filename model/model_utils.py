@@ -9,7 +9,7 @@ class AttentionEncodingBlock(nn.Module):
     
     All hidden dimensions are in embedding_dim
     """
-    def __init__(self, emb_dim, dropout=0.2, num_heads=4):
+    def __init__(self, emb_dim, dropout=0.2, num_heads=8, ff_dim=1024):
         super().__init__()
         self.emb_dim = emb_dim
         self.num_heads = num_heads

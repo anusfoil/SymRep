@@ -10,7 +10,7 @@ experiment:
   batch_size: 12
   lr: 1e-4
   lr_gamma: 0.99
-  es_patience: 80     # early stopping patience
+  es_patience: 60     # early stopping patience
   es_threshold: 0.005  # early stopping threshold 
   
   restore_training: False
@@ -52,9 +52,11 @@ sequence:
   pr_end: 109
   beat_res: 8  # 
   nb_velocities: 32
-  vocab_size: [3, 36, 192, 22, 14, 86] # the final vocabulary size with each tokenization scheme. for CPWord it's a list. mid: [3, 35, 90, 3, 98, 34] xml: [3, 36, 192, 22, 14, 86]
-  BPE: 4 # the scale of multiplying tokens into BPE. 0 is for disabled. 
-  max_seq_len: 1000 # if BPE, then max_seq_len gets relatively smaller
+  vocab_size: [3, 35, 90, 3, 98, 34] # the final vocabulary size with each tokenization scheme. for CPWord it's a list. mid: [3, 35, 90, 3, 98, 34] xml: [3, 36, 192, 22, 14, 86]
+  BPE: 0 # the scale of multiplying tokens into BPE. 0 is for disabled. 
+  max_seq_len: 1600 # if BPE, then max_seq_len gets relatively smaller
+  hid_dim: 512
+  n_heads: 16
   save_dir: "${segmentation.seg_type}-(${segmentation.seg_num}|${segmentation.seg_size}|${segmentation.seg_time}|${segmentation.seg_beat})-${sequence.mid_encoding}-BPE${sequence.BPE}-${sequence.max_seq_len}-${experiment.feat_level}" # furthur data parameters appended after the data_save_dir path
   bpe_dir: "${experiment.data_save_dir}/${sequence.mid_encoding}-${experiment.feat_level}"  # directory for saving JSON token files for BPE learning
 
@@ -63,9 +65,10 @@ graph:
   basic_edges: ['onset', 'consecutive', 'sustain', 'silence', 
       'consecutive_rev', 'sustain_rev', 'silence_rev'
       ]
-  n_layers: 8
+  n_layers: 2
   hid_dim: 256
   bi_dir: True
+  conv_type: SAGEConv # SAGEConv, GATConv
   mid_window: 0.03 # window for determine whether notes are same onset, consecutive and sustain
 
 # DATASET 

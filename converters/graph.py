@@ -230,8 +230,12 @@ def perfmidi_to_graph(path, cfg):
 
     """add node(note) features"""
     perfmidi_hg.ndata['feat_0'] = torch.tensor(np.hstack(
-        [np.expand_dims(np.array(note_events["start"]) % cfg.segmentation.seg_time, 1),  # the relative onset time
-        np.expand_dims(np.array(note_events["duration"]), 1), utils.get_pc_one_hot(note_events), utils.get_octave_one_hot(note_events)]
+        [
+        # utils.get_onset_one_hot(note_events),
+        np.expand_dims(np.array(note_events["start"]) % cfg.segmentation.seg_time, 1),  # the relative onset time
+        # utils.get_duration_one_hot(note_events),
+        np.expand_dims(np.array(note_events["duration"]), 1), 
+        utils.get_pc_one_hot(note_events), utils.get_octave_one_hot(note_events)]
         ) ).float()
     
     # add level 1 features. pedal and velocity in one-hot format
