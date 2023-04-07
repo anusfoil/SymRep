@@ -110,6 +110,9 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
     """
 
     # refill
+    if not batch_data:
+        batch_data = [np.zeros((1, cfg.sequence.max_seq_len, 6))]
+        batch_labels = [0]
     n_skipped = b - len(batch_data)
     batch_data += [batch_data[-1]] * n_skipped
     batch_labels = torch.tensor(batch_labels + [batch_labels[-1]] * n_skipped, device=device)
@@ -117,7 +120,7 @@ def pad_batch(b, cfg, device, batch_data, batch_labels):
     # pad seg
     max_n_segs = max([len(data) for data in batch_data])
     if cfg.experiment.symrep == "sequence":
-        max_n_segs = min(max([len(data) for data in batch_data]), 8)
+        max_n_segs = min(max([len(data) for data in batch_data]), 5)
         batch_data = [data[:max_n_segs] for data in batch_data]
     # print(f"max_n_segs: {max_n_segs}")
     if cfg.experiment.symrep != "graph":

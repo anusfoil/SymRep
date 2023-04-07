@@ -63,16 +63,15 @@ def musicxml_generate_rolls(note_events, cfg):
     voice_roll = np.zeros((frames_num, cfg.matrix.bins))
 
     for note_event in note_events:
-
         bgn_frame = min(int(round((note_event['onset_div'] - start_delta) * frames_per_second)), frames_num-1)
         fin_frame = min(bgn_frame + int(round((note_event['duration_div']) * frames_per_second)), frames_num-1)
         voice_roll[bgn_frame : fin_frame + 1, note_event['pitch']] = (
             note_event['voice'] if cfg.experiment.feat_level else 1)
         onset_roll[bgn_frame, note_event['pitch']] = 1
 
-    if cfg.experiment.feat_level:
-        # add the score markings feature to matrix.
-        raise NotImplementedError
+    # if cfg.experiment.feat_level:
+    #     # add the score markings feature to matrix.
+    #     raise NotImplementedError
 
     return onset_roll, voice_roll
 
@@ -140,9 +139,18 @@ def musicxml_to_matrix(path, cfg):
         return None
 
     if cfg.segmentation.seg_type == "fix_num":
+
         onset_roll, voice_roll = musicxml_generate_rolls(note_events, cfg)
+        if 'asap-dataset/Schubert/Impromptu_op.90_D.899/4_' in path: # plotting
+            from PIL import Image
+            from matplotlib import cm
+            # example = np.uint8(cm.rainbow(example)*255)
+            im = Image.fromarray(np.uint8(cm.rainbow(example)*255))
         onset_roll = rearrange(onset_roll, "(s f) n -> s f n", s=cfg.segmentation.seg_num)
         voice_roll = rearrange(voice_roll, "(s f) n -> s f n", s=cfg.segmentation.seg_num)
+
+        # im = Image.fromarray(np.uint8(cm.gist_earth(voice_roll)*255))
+        # im.save('tmp.png')
     
     elif cfg.segmentation.seg_type == "fix_size":
         """in matrices, we define the <size> as amount of musical event"""
@@ -199,6 +207,9 @@ def batch_to_matrix(batch, cfg, device):
                 if cfg.matrix.n_channels == 1:
                     seg_matrices = seg_matrices[:, 1:, :, :]
                 recompute = False
+        
+        # if 'asap-dataset/Schubert/Impromptu_op.90_D.899/4_' in path:
+        #     recompute = True
 
         if recompute:
             if cfg.experiment.input_format == "perfmidi":
@@ -216,6 +227,20 @@ def batch_to_matrix(batch, cfg, device):
         
         batch_matrix.append(seg_matrices)
         batch_labels.append(l)
+
+    if cfg.experiment.tmp:
+        from PIL import Image
+        from matplotlib import cm
+        example = batch_matrix[6][0][0]
+        im = Image.fromarray(np.uint8(cm.gist_earth(example)*255))
+        
+    #     byte_counts = []
+    #     for piece_segments in batch_matrix:
+    #         total_bytes = 0
+    #         for ss in piece_segments:
+    #             total_bytes += np.array(ss).nbytes
+    #         byte_counts.append(total_bytes)
+    #     byte_counts = np.array(byte_counts)
 
     batch_matrix, batch_labels = utils.pad_batch(b, cfg,  device, batch_matrix, batch_labels)
     batch_matrix = torch.tensor(np.array(batch_matrix), device=device, dtype=torch.float32) 

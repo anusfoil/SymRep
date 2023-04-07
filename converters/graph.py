@@ -305,9 +305,10 @@ def musicxml_to_graph(path, cfg):
 
 
 def get_subgraphs(graph, cfg):
-    """ split the graph into segment subgraphs 
-    Also, remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched). Remove reverse edges if bi_dir is false
-    Also convert to homogeneous graphs when it needs to.
+    """ 
+    - split the graph into segment subgraphs 
+    - remove higher level edges if feat_level is 0 (as we can't do it after the graphs are batched). Remove reverse edges if bi_dir is false
+    - Also convert to homogeneous graphs when it needs to.
 
     Return:
         seg_subgraphs (list of dgl.DGLHeteroGraph)
@@ -325,13 +326,21 @@ def get_subgraphs(graph, cfg):
             h_graph.ndata[k] = v
         graph = h_graph
 
+    # only get the basic edge types if the features level is 0.
+    if (not cfg.graph.homo) and cfg.experiment.feat_level == 0:
+        graph = dgl.edge_type_subgraph(graph, [('note', et, 'note') for et in cfg.graph.basic_edges])
+    
+    # only get the non-reverse edge types if bi_dir is false.
+    if (not cfg.graph.homo) and (not cfg.graph.bi_dir):
+        graph = dgl.edge_type_subgraph(graph, [('note', et, 'note') for et in cfg.graph.basic_edges if ("rev" not in et)])
+
+    # segmentation into subgraphs of music segs
     if cfg.segmentation.seg_type == "fix_time":
         window = cfg.segmentation.seg_time if cfg.experiment.input_format == "perfmidi" else cfg.segmentation.seg_beat
         nodes_onset_times = graph.ndata['feat_-1']  / window
         bins = np.arange(np.ceil(nodes_onset_times.max()), dtype=int)
         inds = np.digitize(nodes_onset_times, bins)
         seg_subgraphs = [dgl.node_subgraph(graph, np.where(inds==(i+1))[0]) for i in bins]
-
     else:
         if cfg.segmentation.seg_type == "fix_num": 
             n_segs = cfg.segmentation.seg_num
@@ -342,20 +351,6 @@ def get_subgraphs(graph, cfg):
 
         seg_subgraphs = [dgl.node_subgraph(graph, list(range(i*l, i*l+l))) for i in range(n_segs-1)]
         seg_subgraphs.append(dgl.node_subgraph(graph, list(range((n_segs-1)*l, graph.number_of_nodes()))))
-
-    # only get the basic edge types if the features level is 0.
-    if (not cfg.graph.homo) and cfg.experiment.feat_level == 0:
-        seg_subgraphs = [
-            dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges])
-            for sg in seg_subgraphs
-        ]
-    
-    # only get the non-reverse edge types if bi_dir is false
-    if (not cfg.graph.homo) and (not cfg.graph.bi_dir):
-        seg_subgraphs = [
-            dgl.edge_type_subgraph(sg, [('note', et, 'note') for et in cfg.graph.basic_edges if ("rev" not in et)])
-            for sg in seg_subgraphs
-        ]
 
     return seg_subgraphs
 
@@ -392,14 +387,25 @@ def batch_to_graph(batch, cfg, device):
                     graph = res
                 else: # in case that the xml has parsing error, we skip and copy existing data at the end.
                     continue
-            elif cfg.experiment.input_format == "kern":
-                graph = kern_to_graph(path, cfg)
             
             utils.save_data(path, graph, cfg)
         
         batch_graphs.append(get_subgraphs(graph, cfg))
         batch_labels.append(l)
     
+    if cfg.experiment.tmp:
+        example = batch_graphs[13][0]
+    # if cfg.experiment.tmp:
+    #     byte_counts = []
+    #     for piece_graphs in batch_graphs:
+    #         total_bytes = 0
+    #         for sg in piece_graphs:
+    #             total_bytes += np.array(sg.ndata['feat_0']).nbytes
+    #             for etype in ['onset', 'consecutive', 'sustain', 'silence']:
+    #                 total_bytes += np.array(sg.edges(etype=etype)[0]).nbytes * 2
+    #         byte_counts.append(total_bytes)
+    #     byte_counts = np.array(byte_counts)
+    #     hook()
     batch_graphs, batch_labels = utils.pad_batch(b, cfg, device, batch_graphs, batch_labels)
 
     return np.array(batch_graphs, dtype='object'), batch_labels

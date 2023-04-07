@@ -36,10 +36,10 @@ def clip_segs(tokens, cfg):
 def pad_segs(seg_tokens, cfg):
     if cfg.sequence.mid_encoding == "CPWord":
         seg_tokens = [np.concatenate([seg_token, repeat(np.array([0] * 6), 'd -> k d', k=( cfg.sequence.max_seq_len - len(seg_token)))])
-                    for seg_token in seg_tokens]        
+                    for seg_token in seg_tokens if seg_token]        
     seg_tokens = [np.pad(seg_token, (0, cfg.sequence.max_seq_len - len(seg_token)), mode="constant", constant_values=0)
                  for seg_token in seg_tokens]
-    return np.array(seg_tokens)
+    return np.array(seg_tokens) # ()
     
 
 def perfmidi_to_sequence(path, tokenizer, cfg):
@@ -53,17 +53,19 @@ def perfmidi_to_sequence(path, tokenizer, cfg):
     if cfg.segmentation.seg_type == "fix_time":
         """For the fix_time segmentation, we get different segments in midi and then tokenize them"""
         seg_tokens, i = [], 0
+        mapping = midi.get_tick_to_time_mapping()
+        instrument_track = copy.deepcopy(midi.instruments[0])
         while True:
-            _midi = copy.deepcopy(midi)
-            instrument_track = _midi.instruments[0]
+            # _midi = copy.deepcopy(midi)
+            # instrument_track = _midi.instruments[0]
             start, end = (i)*cfg.segmentation.seg_time, (i+1)*cfg.segmentation.seg_time 
-            instrument_track.notes = [note for note in instrument_track.notes 
-                                        if (midi.get_tick_to_time_mapping()[note.start] < end
-                                            and (midi.get_tick_to_time_mapping()[note.start]) > start)]
-            if not instrument_track.notes:
+            midi.instruments[0].notes = [note for note in instrument_track.notes 
+                                        if (note.start < len(mapping) and 
+                                            (mapping[note.start] < end and (mapping[note.start]) > start))]
+            if not midi.instruments[0].notes:
                 break
-            print(len(instrument_track.notes))
-            tokens = tokenizer(_midi)[0]
+            print(len(midi.instruments[0].notes))
+            tokens = tokenizer(midi)[0]
             utils.try_save_BPE_tokens(tokenizer, tokens, cfg)
             if cfg.sequence.BPE:
                 tokens = tokenizer.apply_bpe(tokens)
@@ -87,6 +89,8 @@ def musicxml_to_sequence(path, tokenizer, cfg):
 
     try:
         score = pt.load_musicxml(path)
+        if "Kreisleriana,_Op._16/VIII._Schnell_und_spielend/" in path:
+            raise RuntimeError
     except Exception as e:
         print("Failed on score {} with exception {}".format(os.path.splitext(os.path.basename(path))[0], e))
         return None
@@ -145,14 +149,23 @@ def batch_to_sequence(batch, cfg, device, tokenizer):
                     seg_sequences = res
                 else: # in case that the xml has parsing error, we skip and copy existing data at the end.
                     continue
-            elif cfg.experiment.input_format == "kern":
-                seg_sequences = kern_to_sequence(path, tokenizer, cfg)
 
             utils.save_data(path, seg_sequences, cfg)
 
         batch_sequence.append(seg_sequences)
         batch_labels.append(l)
     
+    if cfg.experiment.tmp:
+        example = batch_sequence[10][0, :50]
+        for e in tokenizer.tokens_to_events(example):
+            print(e)
+    #     byte_counts = []
+    #     for piece_segments in batch_sequence:
+    #         total_bytes = 0
+    #         for ss in piece_segments:
+    #             total_bytes += np.array(ss).nbytes
+    #         byte_counts.append(total_bytes)
+    #     byte_counts = np.array(byte_counts)
     batch_sequence, batch_labels = utils.pad_batch(b, cfg, device, batch_sequence, batch_labels)
     batch_sequence = torch.tensor(np.array(batch_sequence), device=device, dtype=torch.float32) 
     return batch_sequence, batch_labels

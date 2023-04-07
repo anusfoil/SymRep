@@ -1,6 +1,6 @@
-import os, sys, random, glob, argparse
+import os, sys, random, glob, json
 sys.path.extend(["../symrep", "../", "../model", "../converters"])
-import hydra, wandb
+import hydra, wandb, scipy
 from omegaconf import DictConfig, OmegaConf
 import torch
 import torch.nn as nn
@@ -19,8 +19,8 @@ import dgl
 from dgl.dataloading import GraphDataLoader
 from converters import dataloaders, matrix, sequence, graph, utils
 from model import agg, matrix_frontend, graph_frontend, sequence_frontend
+import train_utils as train_utils
 
-import hook
 
 class LitModel(LightningModule):
     def __init__(self, model_frontend, model_backend, cfg):
@@ -34,6 +34,9 @@ class LitModel(LightningModule):
         if cfg.experiment.symrep == "sequence":
             self.tokenizer = utils.construct_tokenizer(cfg)
 
+        self.all_pred = []   # for testing and anova
+        self.all_label = []
+
         self.train_acc = Accuracy('multiclass', num_classes=self.n_classes)
         self.val_acc = Accuracy('multiclass', num_classes=self.n_classes)
         self.test_acc = Accuracy('multiclass', num_classes=self.n_classes)
@@ -46,6 +49,8 @@ class LitModel(LightningModule):
         self.val_auroc = AUROC('multiclass', num_classes=self.n_classes, average="macro")
         self.test_fscore = F1Score('multiclass', num_classes=self.n_classes, average="macro")
         self.test_auroc = AUROC('multiclass', num_classes=self.n_classes, average="macro")
+        
+        self.mem_count = []
 
     def batch_to_input(self, batch):
         """convert a batch of data into with the designated representation format.
@@ -78,10 +83,19 @@ class LitModel(LightningModule):
             if self.cfg.experiment.symrep == "matrix":
                 _input = rearrange(_input, "b s c h w -> (b s) c h w") 
             elif self.cfg.experiment.symrep == "sequence":
+                self.seg_len = _input.shape[1]
                 if self.cfg.sequence.mid_encoding == "CPWord":
                     _input = rearrange(_input, "b s l k -> (b s) l k") #CPWord has one extra batch dimension
                 else:
                     _input = rearrange(_input, "b s l -> (b s) l") 
+
+            if self.cfg.sequence.output_weights:
+                _output, weights = self.model_frontend(_input)
+                
+                self._input = _input
+                self.weights = weights
+                return None, None
+            
             _seg_emb = rearrange(self.model_frontend(_input), "(b s) v -> b s v", s=n_segs) 
             _logits = self.model_backend(_seg_emb) # b n
         
@@ -95,7 +109,7 @@ class LitModel(LightningModule):
         #     data_artifact = wandb.Artifact("processed_input", type="data")
         #     data_artifact.add_dir(self.cfg.experiment.data_save_dir, name=data_save_dir)
         #     self.logger.experiment.log_artifact(data_artifact)
-        
+
         _input, _label = self.batch_to_input(batch)
         _logits, _pred = self.forward_pass(_input)
 
@@ -132,6 +146,28 @@ class LitModel(LightningModule):
         _input, _label = self.batch_to_input(batch)
         _logits, _pred = self.forward_pass(_input) 
 
+        if self.cfg.sequence.output_weights:
+            weights, adjs = [], []
+            for i in range(len(batch[0])):
+                i = 3
+                print(batch[0][i])
+                piece_idx = i
+                seg_len = _input.shape[1]
+                return_flag = False
+                n_nodes = train_utils.attn_visualization(self._input, self.weights, self.tokenizer, seg_len, i, 
+                                                                        piece_idx=piece_idx, token_type="NoteOn", 
+                                                                        subseq_len=65,
+                                                                        return_attn=return_flag)
+                # get the graph for comparison
+                adj = train_utils.graph_visualization(self.cfg, batch[0][piece_idx], n_nodes, i, return_adj=return_flag)
+                # weights.append(attn_weights.flatten())
+                # adjs.append(adj.flatten())
+                
+            # scipy.stats.pearsonr(torch.cat(weights), torch.cat(adjs))
+
+        self.all_pred.extend(_pred.cpu().tolist())
+        self.all_label.extend(_label.cpu().tolist())
+
         self.test_acc(_pred, _label)
         self.test_fscore(_pred, _label)
         self.test_auroc(_logits, _label)
@@ -150,6 +186,12 @@ class LitModel(LightningModule):
                 "scheduler": torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=self.cfg.experiment.lr_gamma),
                 "interval": "epoch"
             }
+            # "lr_scheduler": {
+            #     "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="max"),
+            #     "interval": "epoch",
+            #     "frequency": 1,
+            #     "monitor": "val_fscore"
+            # }
         }
 
 class LitDataset(LightningDataModule):
@@ -238,7 +280,7 @@ def construct_logger(cfg, model):
                 group=(cfg.experiment.group_name if cfg.experiment.grouped else None),
                 log_model="all"
             )
-    wandb_logger.watch(model, log='all')
+    # wandb_logger.watch(model, log='all')
     wandb_logger.experiment.config.update(OmegaConf.to_container(cfg, resolve=True))
     return wandb_logger
 
@@ -246,6 +288,10 @@ def construct_logger(cfg, model):
 @hydra.main(config_path="../conf", config_name="config")
 def main(cfg: OmegaConf) -> None:
 
+    if cfg.experiment.symrep == 'graph': 
+        cfg.experiment.group_name="${experiment.task}-${experiment.dataset}-${experiment.input_format}-${experiment.symrep}-bi${graph.bi_dir}-ho${graph.homo}-noae"
+
+    os.environ["CUDA_VISIBLE_DEVICES"] = str(cfg.experiment.device)
     prep_run(cfg) # random seed, empty cache, clean wandb logs
 
     lit_dataset = LitDataset(cfg)
@@ -256,24 +302,27 @@ def main(cfg: OmegaConf) -> None:
         cfg)
     
     wandb_logger = construct_logger(cfg, model_frontend) # wandblogger, model watch and artifact dataset
+    checkpoint_callback = ModelCheckpoint(
+                                monitor="val_acc",
+                                dirpath=cfg.experiment.checkpoint_dir,
+                                filename='{epoch:02d}-{val_acc:.2f}',
+                                mode='max'
+                            )
     trainer = Trainer(
         accelerator="gpu",
-        gpus=cfg.experiment.device,
+        # gpus=cfg.experiment.device,
+        gpus=0,
         # strategy='ddp',
         max_epochs=cfg.experiment.epoch,
         logger=wandb_logger,
         replace_sampler_ddp=False,
         # auto_scale_batch_size='power',
         callbacks=[
-            ModelCheckpoint(
-                monitor="val_acc",
-                dirpath=cfg.experiment.checkpoint_dir,
-                filename='{epoch:02d}-{val_acc:.2f}',
-                mode='max'
-            ), 
+            checkpoint_callback, 
             EarlyStopping(
                 monitor="val_acc",
                 min_delta=cfg.experiment.es_threshold,
+                # patience=300,  
                 patience=cfg.experiment.es_patience,  # NOTE no. val epochs, not train epochs
                 verbose=False,
                 mode="max",
@@ -281,16 +330,17 @@ def main(cfg: OmegaConf) -> None:
             LearningRateMonitor(logging_interval='epoch')
             ]
         )
-        
-    # trainer.tune(lit_model, datamodule=lit_dataset) # get optimal batch size
-    trainer.fit(lit_model, 
-        datamodule=lit_dataset,
-        ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.load_model else None))
+    
+    if (not cfg.sequence.output_weights) and (not cfg.experiment.testing_only):
+        trainer.fit(lit_model, 
+            datamodule=lit_dataset,
+            ckpt_path=(cfg.experiment.checkpoint_file if cfg.experiment.load_model else None))
 
 
     if cfg.experiment.load_model:
-        artifact_dir = wandb_logger.download_artifact(artifact='huanz/symrep/model-35lc0sy2:v9')
-        wandb_logger.use_artifact(artifact='huanz/symrep/model-35lc0sy2:v9')
+        artifact_dir = wandb_logger.download_artifact(artifact=cfg.experiment.artifact_dir)
+        wandb_logger.use_artifact(artifact=cfg.experiment.artifact_dir)
+
     """testing"""
     if cfg.experiment.dataset == "ASAP":
         test_dataset = dataloaders.ASAP(cfg, split='test')
@@ -298,10 +348,14 @@ def main(cfg: OmegaConf) -> None:
         test_dataset = dataloaders.ATEPP(cfg, split='test')
     trainer.test(lit_model, 
                  ckpt_path=(artifact_dir+"/model.ckpt" if cfg.experiment.load_model else None ),
+                #  callbacks = [checkpoint_callback],
                  dataloaders=DataLoader(test_dataset, 
                                                 batch_size=cfg.experiment.batch_size,
                                                 pin_memory=True,
-                                                num_workers=8))
+                                                num_workers=1,
+                                                shuffle=True))
+    print(lit_model.all_pred)
+    print(lit_model.all_label)
 
 
 if __name__ == "__main__":

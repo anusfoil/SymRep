@@ -78,11 +78,11 @@ class GNN_GAT(nn.Module):
 
         return {'note': node_features}
         
-def get_base_conv(conv_type, in_dim, out_dim, num_head=2):
+def get_base_conv(conv_type, in_dim, out_dim, cfg, num_head=8):
     """get the base convolution layer depending on the given conv_type """
     
     if conv_type == "SAGEConv":
-        return SAGEConv(in_dim, out_dim, aggregator_type='gcn')
+        return SAGEConv(in_dim, out_dim, aggregator_type=cfg.graph.sage_agg)
     if conv_type == "GATConv":
         return GATConv(in_dim, out_dim, num_heads=num_head)
     if conv_type == "GINConv":
@@ -98,8 +98,7 @@ def edge_agg(edge_agg_layer, stacked_output):
 
 
 class GNN(nn.Module):
-    def __init__(self, cfg, in_dim=23,
-                 activation=F.relu, dropout=0.2):
+    def __init__(self, cfg, in_dim=23, activation=F.relu):
         super().__init__()
 
         self.cfg = cfg
@@ -107,7 +106,7 @@ class GNN(nn.Module):
         self.out_dim = cfg.experiment.emb_dim
         self.layers = nn.ModuleList()
         self.activation = activation
-        self.dropout = nn.Dropout(dropout)
+        self.dropout = nn.Dropout(cfg.graph.dropout)
 
         self.in_dim = in_dim
         self.etypes=cfg.graph.basic_edges
@@ -142,21 +141,21 @@ class GNN(nn.Module):
         #     nn.Linear(len(self.etypes) * self.out_dim, self.out_dim) 
         # )
         if cfg.graph.homo:
-            self.layers.append(get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim))
+            self.layers.append(get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim, cfg))
             for _ in range(n_layers - 1):
-                self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim))
-            self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim)) 
+                self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim, cfg))
+            self.layers.append(get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim, cfg)) 
         else:
             self.layers.append(dglnn.HeteroGraphConv({
-                edge_type: get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim)
-                for edge_type in self.etypes}, aggregate="max")) # do operation with aggregation 
+                edge_type: get_base_conv(cfg.graph.conv_type, self.in_dim, self.hid_dim, cfg)
+                for edge_type in self.etypes}, aggregate=cfg.graph.edge_agg)) # do operation with aggregation 
             for _ in range(n_layers - 1):
                 self.layers.append(dglnn.HeteroGraphConv({
-                    edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim)
-                for edge_type in self.etypes}, aggregate="max"))
+                    edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.hid_dim, cfg)
+                for edge_type in self.etypes}, aggregate=cfg.graph.edge_agg))
             self.layers.append(dglnn.HeteroGraphConv({
-                edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim)
-                for edge_type in self.etypes}, aggregate="max"))
+                edge_type: get_base_conv(cfg.graph.conv_type, self.hid_dim, self.out_dim, cfg)
+                for edge_type in self.etypes}, aggregate=cfg.graph.edge_agg))
 
 
     def forward(self, g):

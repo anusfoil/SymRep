@@ -50,12 +50,12 @@ class ASAP(Dataset):
         self.metadata = pd.read_csv(cfg.dataset.ASAP.metadata_file)
         self.dataset_dir = cfg.dataset.ASAP.dataset_dir
 
-        if self.input_format == "musicxml": # for music xml, only get the unique entries...
+        if self.input_format == "musicxml" or cfg.experiment.no_ae_run: # for music xml, only get the unique entries...
             self.metadata = self.metadata.drop_duplicates('xml_score', keep='first')
 
         if self.task == "composer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'composer')
-            if self.input_format == 'musicxml':
+            if self.input_format == 'musicxml' or cfg.experiment.no_ae_run:
                 self.metadata = self.metadata[self.metadata['composer_split_xml'] == split]
             else:
                 self.metadata = self.metadata[self.metadata['composer_split_mid'] == split]
@@ -101,7 +101,7 @@ class ATEPP(Dataset):
         # self.metadata = pd.read_csv(cfg.dataset.ATEPP.metadata_file, encoding="utf-8-sig")
         self.metadata = pd.read_csv(cfg.dataset.ATEPP.metadata_file)
 
-        if self.input_format == "musicxml":
+        if self.input_format == "musicxml" or cfg.experiment.no_ae_run:
             # filter out the ones without score
             self.metadata = self.metadata[~self.metadata['score_path'].isna()]
             # for music xml, only get the unique entries...
@@ -109,13 +109,13 @@ class ATEPP(Dataset):
 
         if self.task == "composer_id":
             self.metadata = drop_uncommon_classes(self.metadata, 'composer')
-            if self.input_format == 'musicxml':
+            if self.input_format == 'musicxml' or cfg.experiment.no_ae_run:
                 self.metadata = self.metadata[self.metadata['composer_split_xml'] == split]
             else:
                 self.metadata = self.metadata[self.metadata['composer_split_mid'] == split]
             self.label_column = self.metadata['composer']
         elif self.task == "performer_id":
-            self.metadata = drop_uncommon_classes(self.metadata, 'artist', threshold=0.1)
+            self.metadata = drop_uncommon_classes(self.metadata, 'artist', threshold=0.2)
             self.metadata = self.metadata[self.metadata['performer_split_mid'] == split]
             self.label_column = self.metadata['artist']
         elif self.task == "difficulty_id":

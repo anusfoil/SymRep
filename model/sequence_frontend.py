@@ -32,7 +32,7 @@ class RNN(nn.Module):
 
 
 class AttentionEncoder(nn.Module):
-    def __init__(self, cfg, n_layers=2):
+    def __init__(self, cfg, n_layers=5):
         super().__init__()
 
         self.hid_dim = cfg.sequence.hid_dim
@@ -46,8 +46,8 @@ class AttentionEncoder(nn.Module):
             n_tokens = (sum(cfg.sequence.vocab_size) * cfg.sequence.BPE) if cfg.sequence.BPE else 400
             self.emb = nn.Embedding(n_tokens, self.hid_dim, padding_idx=0) 
         self.pe = PositionalEncoding(self.hid_dim, max_len=cfg.sequence.max_seq_len)
-        self.attn_layers = nn.Sequential(
-            *[utils.AttentionEncodingBlock(self.hid_dim, num_heads=self.num_heads) for _ in range(n_layers)]
+        self.attn_layers = nn.ModuleList(
+            [utils.AttentionEncodingBlock(self.hid_dim, num_heads=self.num_heads, output_weights=cfg.sequence.output_weights) for _ in range(n_layers)]
             )
 
         self.blocks = nn.Sequential(
@@ -63,9 +63,20 @@ class AttentionEncoder(nn.Module):
         else:
             x = self.emb(x.long())
         x = self.pe(x)
-        x = self.attn_layers(x)
+        attn_weights = []
+        for layer in self.attn_layers:
+            if not self.cfg.sequence.output_weights:
+                x = layer(x)
+                continue
+            x, weights = layer(x)
+            attn_weights.append(weights)
+        
         x = self.blocks(x)
         
+        if self.cfg.sequence.output_weights:
+            attn_weights = torch.stack(attn_weights)
+            return x, attn_weights
+
         return x
         
 

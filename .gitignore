@@ -11,3 +11,5 @@ hook.py
 **/artifacts/
 **/*.ckpt
 **/multirun/
+**/*.json
+**/tmp.png

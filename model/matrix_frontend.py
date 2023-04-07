@@ -15,8 +15,10 @@ class Resnet(nn.Module):
         super().__init__()
         self.cfg = cfg
         self.model = torchmodels.resnet18(
-            layers=cfg.matrix.res_layers,
-            num_classes=cfg.experiment.emb_dim) # the resnet blocks are hard-modified with input channel and layers. (Since I can't just pass in this)
+            layers=cfg.matrix.res_layers, # [1, 1, 1, 1]
+            num_classes=cfg.experiment.emb_dim,
+            channels=cfg.matrix.n_channels) # the resnet blocks are hard-modified with input channel and layers. (Since I can't just pass in this),
+            
         self.blocks = nn.Sequential(
             self.model,
             # Rearrange('b c h w -> b (c h w)') 

@@ -1,0 +1,44 @@
+program: train.py
+method: bayes
+metric:
+  goal: maximize
+  name: val_acc
+parameters:
+  graph.dropout:
+    min: 0
+    max: 0.5
+    distribution: uniform
+  graph.n_layers:
+    min: 2
+    max: 4
+    distribution: int_uniform
+  graph.hid_dim:
+    values:
+      - 64
+      - 128
+      - 256
+      - 512
+      - 1024
+    distribution: categorical
+  graph.edge_agg:
+    values:
+      - "max"
+      - "mean"
+      - "sum"
+    distribution: categorical
+  graph.sage_agg:
+    values:
+      - "gcn"
+      - "lstm"
+      - "mean"
+    distribution: categorical
+  experiment.lr:
+    max: 0.001
+    min: 0.00005
+    distribution: uniform
+
+command:
+  - ${env}
+  - python
+  - ${program}
+  - ${args_no_hyphens}
