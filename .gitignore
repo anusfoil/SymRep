@@ -13,3 +13,4 @@ hook.py
 **/multirun/
 **/*.json
 **/tmp.png
+**/tmp.py

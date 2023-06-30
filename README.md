@@ -33,7 +33,7 @@ To run the experiments, run the following command:
 
 The configurations regarding experiment, task, dataset, as well as the three representations, can be modified in  ```conf/config.yaml```. 
 
-Experiments for this repository are logged using [Weights and Biases](wandb.ai).
+Experiments for this repository are logged using [Weights and Biases](https://wandb.ai/huanz/symrep).
 
 #### Structure
 
