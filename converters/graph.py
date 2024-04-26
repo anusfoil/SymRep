@@ -186,7 +186,7 @@ def perfmidi_to_graph(path, cfg):
     pedal_events = perf_data.instruments[0].control_changes 
     pedal_events = pd.concat([
         pd.DataFrame({'time': [0], "value": [0]}),
-        pd.DataFrame([(p.time, p.value) for p in pedal_events if p.number == 67], columns=['time', 'value'])])
+        pd.DataFrame([(p.time, p.value) for p in pedal_events if p.number == 64], columns=['time', 'value'])])
     note_events["sustain_value"] = note_events.apply(
         lambda row: pedal_events[pedal_events['time'] <= row['start']].iloc[0]['value'], axis=1)
 

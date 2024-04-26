@@ -24,20 +24,21 @@ pip install -r requirements.txt
 
 #### Usage
 
-To run the experiments, run the following command:
+To run the experiments, run the following command and change the parameters:
 ```bash
 ./experiments/crossval_run.sh
 ```
 
 #### Configuration 
 
-The configurations regarding experiment, task, dataset, as well as the three representations, can be modified in  ```conf/config.yaml```. 
+The configurations regarding experiment, task, dataset, as well as the three representations, can be modified in  ```conf/config.yaml```. The parameters management are supported by Hydra.
 
 Experiments for this repository are logged using [Weights and Biases](https://wandb.ai/huanz/symrep).
 
 #### Structure
 
 The code is organized into the following folders:
+- `conf`: configuration files
 - `model`: contains the code for the models used in the paper
 - `experiments`: contains the code for the experiments in the paper
 - `converters`: contains the code for converting each symbolic representation
