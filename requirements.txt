@@ -4,6 +4,7 @@ einops==0.6.0
 hydra-core==1.3.2
 ipython==8.12.0
 matplotlib==3.5.1
+miditok==1.4.3
 miditoolkit==0.1.16
 numpy==1.22.4
 omegaconf==2.0.6
