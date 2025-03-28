@@ -12,6 +12,8 @@ We use two datasets for evaluation:
 - [ASAP](https://github.com/CPJKU/asap-dataset)
 - [ATEPP](https://github.com/BetsyTang/ATEPP)
 
+For their dataset split used in the experiment, please refer to the refined metadata files: [Google Drive](https://drive.google.com/drive/folders/1vyByrctZX9hJ90pz0vtrqLmZ2XPykCIH?usp=drive_link)
+
 To use please download the corresponding datasets and refer to the path in ```conf/config.yaml```
 
 #### Requirements
